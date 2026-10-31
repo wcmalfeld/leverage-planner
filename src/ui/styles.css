@@ -80,6 +80,7 @@ a { color: var(--accent); }
 .shell { display: grid; grid-template-columns: 220px 1fr; min-height: 100%; }
 .rail { position: sticky; top: env(safe-area-inset-top, 0px); height: 100vh; border-right: 1px solid var(--line); padding: 1.25rem .75rem; display: flex; flex-direction: column; gap: 1.25rem; background: var(--surface); }
 .brand { display: flex; gap: .6rem; align-items: center; padding: 0 .5rem; }
+.icon { width: 1.1em; height: 1.1em; flex: none; } /* default; container rules (.nav svg, .btn svg…) override */
 .brand-mark { width: 30px; height: 30px; flex: none; }
 .brand-name { font-family: var(--f-display); font-weight: 700; font-size: 1rem; line-height: 1.1; }
 .brand-sub { font-size: .7rem; color: var(--muted); letter-spacing: .04em; }
