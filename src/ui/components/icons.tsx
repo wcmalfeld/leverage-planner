@@ -9,6 +9,7 @@ const I = (d: ReactNode) => () => (
 export const Icon = {
   today: I(<><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>),
   plan: I(<><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M3 9h18M8 2v4M16 2v4M7 13h4M7 17h7" /></>),
+  calendar: I(<><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M3 9h18M8 2v4M16 2v4" /><path d="M7.5 13h.01M12 13h.01M16.5 13h.01M7.5 17h.01M12 17h.01" strokeWidth={2.6} /></>),
   compare: I(<><path d="M8 3v18M16 3v18" /><path d="M3 7h5M3 12h5M16 9h5M16 15h5M16 19h3" /></>),
   tasks: I(<><path d="M9 6h11M9 12h11M9 18h11" /><path d="m3.5 6 1.5 1.5L7.5 5M3.5 12l1.5 1.5L7.5 11" /><circle cx="5" cy="18" r="1.2" /></>),
   rank: I(<><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></>),

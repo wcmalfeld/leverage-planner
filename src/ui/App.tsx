@@ -12,16 +12,20 @@ import { GoalsView } from './views/Goals';
 import { RoutineView } from './views/Routine';
 import { ReviewView } from './views/Review';
 import { DataView } from './views/Data';
+import { CalendarView } from './views/Calendar';
+import type { ISODate } from '../domain/types';
+import { todayISO } from '../domain/time';
 import { Onboarding } from './views/Onboarding';
 
 // Loaded on demand so the Anthropic SDK only downloads for people who use the coach.
 const CoachView = lazy(() => import('./views/Coach').then((m) => ({ default: m.CoachView })));
 
-export type View = 'today' | 'plan' | 'compare' | 'coach' | 'tasks' | 'priorities' | 'goals' | 'routine' | 'review' | 'data';
+export type View = 'today' | 'plan' | 'calendar' | 'compare' | 'coach' | 'tasks' | 'priorities' | 'goals' | 'routine' | 'review' | 'data';
 
 const NAV: { id: View; label: string; icon: () => ReactNode }[] = [
   { id: 'today', label: 'Today', icon: Icon.today },
   { id: 'plan', label: 'Plan', icon: Icon.plan },
+  { id: 'calendar', label: 'Calendar', icon: Icon.calendar },
   { id: 'compare', label: 'Compare', icon: Icon.compare },
   { id: 'coach', label: 'Coach', icon: Icon.spark },
   { id: 'tasks', label: 'Tasks', icon: Icon.tasks },
@@ -35,8 +39,9 @@ const NAV: { id: View; label: string; icon: () => ReactNode }[] = [
 interface UI {
   go: (v: View) => void;
   openTask: (id: string) => void;
+  openPlan: (date: ISODate) => void;
 }
-const UICtx = createContext<UI>({ go: () => {}, openTask: () => {} });
+const UICtx = createContext<UI>({ go: () => {}, openTask: () => {}, openPlan: () => {} });
 export const useUI = () => useContext(UICtx);
 
 const readHash = (): View => {
@@ -48,6 +53,7 @@ export function App() {
   const data = useApp();
   const [view, setView] = useState<View>(readHash);
   const [taskId, setTaskId] = useState<string | null>(null);
+  const [planDate, setPlanDate] = useState<ISODate>(todayISO);
   const [onboarding, setOnboarding] = useState(!data.onboarded);
 
   useEffect(() => {
@@ -56,7 +62,8 @@ export function App() {
     return () => window.removeEventListener('hashchange', f);
   }, []);
 
-  const go = (v: View) => {
+  const go = (v: View, date: ISODate = todayISO()) => {
+    if (v === 'plan') setPlanDate(date);
     setView(v);
     try { history.replaceState(null, '', `#${v}`); } catch { /* sandboxed */ }
     window.scrollTo({ top: 0 });
@@ -66,7 +73,8 @@ export function App() {
 
   const page = {
     today: <TodayView />,
-    plan: <PlanView />,
+    plan: <PlanView key={planDate} initialDate={planDate} />,
+    calendar: <CalendarView />,
     compare: <CompareView />,
     coach: <CoachView />,
     tasks: <TasksView />,
@@ -78,7 +86,7 @@ export function App() {
   }[view];
 
   return (
-    <UICtx.Provider value={{ go, openTask: setTaskId }}>
+    <UICtx.Provider value={{ go, openTask: setTaskId, openPlan: (date) => go('plan', date) }}>
       <div className="shell">
         <nav className="rail" aria-label="Main">
           <div className="brand">

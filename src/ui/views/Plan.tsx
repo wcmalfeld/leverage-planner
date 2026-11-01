@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Block } from '../../domain/types';
+import type { Block, ISODate } from '../../domain/types';
 import { useApp, update } from '../../store/store';
 import { useDerived } from '../../store/derived';
 import { acceptAll, acceptBlock, completeTask, generateFor, rejectBlock, restoreRejected, setBlockTime, unlockBlock } from '../../store/actions';
@@ -11,9 +11,9 @@ import { Timeline, TimelineLegend } from '../components/Timeline';
 import { Icon } from '../components/icons';
 import { useUI } from '../App';
 
-export function PlanView() {
+export function PlanView({ initialDate }: { initialDate?: ISODate }) {
   const data = useApp();
-  const [date, setDate] = useState(todayISO());
+  const [date, setDate] = useState(initialDate ?? todayISO());
   const d = useDerived(date);
   const { openTask } = useUI();
   const [sel, setSel] = useState<string | undefined>();
