@@ -47,7 +47,7 @@ export function DataView({ onRestartOnboarding }: { onRestartOnboarding: () => v
         <div>
           <div className="eyebrow">Data & privacy</div>
           <h1>Your data stays here</h1>
-          <p>Everything is stored locally in this browser. Nothing is sent anywhere — there are no accounts, analytics, or AI calls. Export a backup before clearing browser data or switching devices.</p>
+          <p>Everything is stored locally in this browser. There are no accounts or analytics. Nothing is sent anywhere unless you connect the AI coach, and then only when you ask it something. Export a backup before clearing browser data or switching devices.</p>
         </div>
       </header>
 
@@ -90,7 +90,7 @@ export function DataView({ onRestartOnboarding }: { onRestartOnboarding: () => v
         <h2>Integration points</h2>
         <p className="small muted">The planner is built so these can be added without rewriting it:</p>
         <ul className="small" style={{ margin: 0, paddingLeft: '1.1rem' }}>
-          <li><strong>AI strategy coach</strong> — implements the <span className="mono">StrategyAdvisor</span> interface beside the built-in rules. Off until you add a provider and consent.</li>
+          <li><strong>AI strategy coach</strong> — Claude implements the <span className="mono">StrategyAdvisor</span> interface beside the built-in rules. Off until you connect it on the Coach page with your own API key; the key is never included in backups.</li>
           <li><strong>Calendar import</strong> — maps events to commitments (fixed) and current-plan blocks (what you expect to do).</li>
           <li><strong>Sync or other storage</strong> — swap the <span className="mono">StorageAdapter</span>; the rest of the app doesn’t change.</li>
         </ul>

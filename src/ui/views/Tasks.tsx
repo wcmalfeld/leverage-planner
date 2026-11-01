@@ -5,7 +5,9 @@ import { useRanking } from '../../store/derived';
 import { addTask, updateTask } from '../../store/actions';
 import { daysBetween, fmtDuration, todayISO } from '../../domain/time';
 import { ruleSuggestions } from '../../engine/advisor';
-import { Empty, GoalTag, TierChip, toast } from '../components/common';
+import { aiReady, useAISettings } from '../../ai/settings';
+import { coachSession, useCoachSession } from '../../ai/session';
+import { Empty, GoalTag, Notice, TierChip, toast } from '../components/common';
 import { Icon } from '../components/icons';
 import { useUI } from '../App';
 
@@ -40,7 +42,31 @@ export function TasksView() {
     });
   }, [data.tasks, filter, goalFilter, rankedById]);
 
-  const suggestions = useMemo(() => ruleSuggestions(data, today).filter((s) => !hidden.includes(s.id)).slice(0, 6), [data, today, hidden]);
+  const ai = useAISettings();
+  const { suggestions: claudeSuggestions } = useCoachSession();
+  const [asking, setAsking] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const suggestions = useMemo(
+    () => (claudeSuggestions ?? ruleSuggestions(data, today)).filter((s) => !hidden.includes(s.id)).slice(0, 6),
+    [claudeSuggestions, data, today, hidden],
+  );
+
+  const askClaude = async () => {
+    setAsking(true);
+    setAiError(null);
+    try {
+      const { ClaudeAdvisor, describeError } = await import('../../ai/coach');
+      try {
+        coachSession.setSuggestions(await new ClaudeAdvisor(ai.apiKey).suggest(data, today));
+      } catch (e) {
+        setAiError(describeError(e));
+      }
+    } catch {
+      setAiError('Couldn’t load the coach. Check your connection and try again.');
+    } finally {
+      setAsking(false);
+    }
+  };
 
   const capture = (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,7 +155,7 @@ export function TasksView() {
           <section className="panel">
             <div className="panel-head">
               <h2>What am I missing?</h2>
-              <span className="xs faint">Built-in rules · offline</span>
+              <span className="xs faint">{claudeSuggestions ? 'Claude' : 'Built-in rules · offline'}</span>
             </div>
             {suggestions.length === 0 ? <p className="small muted">No gaps spotted right now.</p> : (
               <div className="list">
@@ -138,7 +164,7 @@ export function TasksView() {
                     <div className="row nowrap between"><span className="item-title">{s.title}</span>{s.goalId && <GoalTag goal={goalsById.get(s.goalId)} />}</div>
                     <span className="small muted">{s.detail}</span>
                     <div className="row">
-                      {s.draft && <button className="btn sm" onClick={() => { const id = addTask({ ...s.draft, title: s.draft!.title! }); toast('Added to your tasks'); openTask(id); }}><Icon.plus />Add as task</button>}
+                      {s.draft && <button className="btn sm" onClick={() => { const id = addTask({ ...s.draft, title: s.draft!.title! }); setHidden([...hidden, s.id]); toast('Added to your tasks'); openTask(id); }}><Icon.plus />Add as task</button>}
                       {(s.kind === 'clarify' || s.kind === 'breakdown') && s.taskId && <button className="btn sm" onClick={() => openTask(s.taskId!)}>Open</button>}
                       {(s.kind === 'neglected' || s.kind === 'bottleneck' || s.kind === 'milestone') && !s.draft && <button className="btn sm" onClick={() => go('goals')}>Review goal</button>}
                       <button className="btn sm ghost" onClick={() => setHidden([...hidden, s.id])}>Dismiss</button>
@@ -147,7 +173,18 @@ export function TasksView() {
                 ))}
               </div>
             )}
-            <p className="xs faint" style={{ marginTop: '.6rem' }}>An AI strategy coach can plug in here later. It will only see your data after you explicitly connect a provider.</p>
+            {aiError && <div style={{ marginTop: '.6rem' }}><Notice kind="crit">{aiError}</Notice></div>}
+            {aiReady(ai) ? (
+              <div className="row" style={{ marginTop: '.6rem' }}>
+                <button className="btn sm" disabled={asking} onClick={askClaude}><Icon.spark />{asking ? 'Asking Claude…' : claudeSuggestions ? 'Ask Claude again' : 'Ask Claude'}</button>
+                {claudeSuggestions && !asking && <button className="btn sm ghost" onClick={() => coachSession.setSuggestions(null)}>Show built-in rules</button>}
+              </div>
+            ) : (
+              <div className="stack tight" style={{ marginTop: '.6rem' }}>
+                <p className="xs faint">Want suggestions tailored to your situation? Connect Claude as your strategy coach.</p>
+                <div><button className="btn sm ghost" onClick={() => go('coach')}><Icon.spark />Set up the coach</button></div>
+              </div>
+            )}
           </section>
         </aside>
       </div>

@@ -245,6 +245,10 @@ textarea.input { resize: vertical; min-height: 4.2rem; }
 .legend span { display: inline-flex; gap: .35rem; align-items: center; }
 .legend i { width: 14px; height: 10px; border-radius: 3px; display: inline-block; }
 
+.chat-log { display: flex; flex-direction: column; gap: .6rem; }
+.chat-msg { white-space: pre-wrap; overflow-wrap: anywhere; padding: .6rem .8rem; border-radius: var(--r-sm); line-height: 1.55; }
+.chat-msg.user { align-self: flex-end; max-width: 85%; background: var(--accent-soft); }
+.chat-msg.assistant { background: var(--sunken); }
 .plan-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 1rem; align-items: start; }
 @media (max-width: 1000px) { .plan-layout { grid-template-columns: 1fr; } }
 .side-sticky { position: sticky; top: calc(1rem + env(safe-area-inset-top, 0px)); display: flex; flex-direction: column; gap: 1rem; }

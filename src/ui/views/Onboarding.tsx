@@ -45,7 +45,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                   <span className="row small" style={{ color: 'var(--accent)', fontWeight: 700 }}>Load example <Icon.arrow /></span>
                 </button>
               </div>
-              <p className="xs faint">Everything stays in this browser. No account, no tracking, no AI calls.</p>
+              <p className="xs faint">Everything stays in this browser. No account, no tracking. The optional AI coach stays off unless you connect it.</p>
             </div>
           )}
 

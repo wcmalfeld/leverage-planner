@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, lazy, Suspense, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useApp, store } from '../store/store';
 import { BrandMark, Icon } from './components/icons';
 import { Notice, ToastHost } from './components/common';
@@ -14,12 +14,16 @@ import { ReviewView } from './views/Review';
 import { DataView } from './views/Data';
 import { Onboarding } from './views/Onboarding';
 
-export type View = 'today' | 'plan' | 'compare' | 'tasks' | 'priorities' | 'goals' | 'routine' | 'review' | 'data';
+// Loaded on demand so the Anthropic SDK only downloads for people who use the coach.
+const CoachView = lazy(() => import('./views/Coach').then((m) => ({ default: m.CoachView })));
+
+export type View = 'today' | 'plan' | 'compare' | 'coach' | 'tasks' | 'priorities' | 'goals' | 'routine' | 'review' | 'data';
 
 const NAV: { id: View; label: string; icon: () => ReactNode }[] = [
   { id: 'today', label: 'Today', icon: Icon.today },
   { id: 'plan', label: 'Plan', icon: Icon.plan },
   { id: 'compare', label: 'Compare', icon: Icon.compare },
+  { id: 'coach', label: 'Coach', icon: Icon.spark },
   { id: 'tasks', label: 'Tasks', icon: Icon.tasks },
   { id: 'priorities', label: 'Priorities', icon: Icon.rank },
   { id: 'goals', label: 'Goals', icon: Icon.goals },
@@ -64,6 +68,7 @@ export function App() {
     today: <TodayView />,
     plan: <PlanView />,
     compare: <CompareView />,
+    coach: <CoachView />,
     tasks: <TasksView />,
     priorities: <PrioritiesView />,
     goals: <GoalsView />,
@@ -102,7 +107,7 @@ export function App() {
             {!store.adapter.durable && (
               <Notice kind="warn">This browser is blocking storage, so changes last only until you close the tab. Use Data → Export to keep a copy.</Notice>
             )}
-            {page}
+            <Suspense fallback={<p className="small muted">Loading…</p>}>{page}</Suspense>
           </div>
         </main>
       </div>

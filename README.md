@@ -12,7 +12,7 @@ npm run build        # production build → dist/
 npm run build:single # one self-contained HTML file → dist-single/index.html
 ```
 
-Requires Node 18+. No API keys, accounts or network services.
+Requires Node 18+. No accounts or servers. The optional AI coach uses your own Anthropic API key, entered in the app.
 
 ## Architecture
 
@@ -28,6 +28,7 @@ src/
     insights.ts      top-three actions, stop/postpone list, strategic note
     review.ts        plan vs actual, weekly summary, estimate calibration, trends
     advisor.ts       bottleneck detection + "What am I missing?" (StrategyAdvisor interface)
+  ai/         optional Claude coach — context.ts (planner snapshot) · coach.ts (ClaudeAdvisor + chat) · settings.ts · session.ts
   store/      storage.ts (StorageAdapter) · store.ts · actions.ts · derived.ts · seed.ts
   ui/         App shell, views/, components/ (Timeline, TaskDrawer, …)
 ```
@@ -63,6 +64,6 @@ src/
 - The "What am I missing?" suggestions are rule-based templates.
 
 ## Integration points
-- **AI coach:** implement `StrategyAdvisor` (`engine/advisor.ts`) and register it beside `RuleBasedAdvisor`. Only send data after the user configures a provider and consents.
+- **AI coach (built in):** `ClaudeAdvisor` (`ai/coach.ts`) implements `StrategyAdvisor` for "What am I missing?", and the Coach page streams a chat. Both call the Anthropic API directly from the browser with the user's own key, which is stored under `leverage-planner:ai`, kept out of backups, and used only after explicit consent. The SDK is lazy-loaded, so people who never connect it don't download it.
 - **Calendar import:** map events to `Commitment` (fixed) and `CurrentBlock` (current plan).
 - **Storage/sync:** implement `StorageAdapter` (`store/storage.ts`).
