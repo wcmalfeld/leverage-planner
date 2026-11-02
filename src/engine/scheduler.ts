@@ -32,6 +32,7 @@ import {
   energyAt,
   inFocusWindow,
   len,
+  overlaps,
   subtract,
   type Interval,
   type FreeWindow,
@@ -126,9 +127,16 @@ export function generatePlan(input: ScheduleInput): DayPlan {
 
   let state: State = { free: avail.windows.map((w) => ({ ...w })), blocks };
 
-  // Locked task blocks stay exactly where the user put them.
+  // Locked task blocks stay exactly where the user put them — unless a commitment
+  // (e.g. a newly added must-attend event) now sits on top, in which case the task is re-placed.
   const lockedTaskIds = new Set<string>();
+  const bumped: { title: string; clash: string }[] = [];
   for (const b of keep.filter((b) => b.type === 'task')) {
+    const clash = b.status !== 'done' ? avail.busy.find((s) => overlaps(s, b)) : undefined;
+    if (clash) {
+      bumped.push({ title: b.title, clash: clash.commitment.title });
+      continue;
+    }
     state.blocks.push({ ...b });
     state.free = subtractWindows(state.free, b);
     if (b.taskId) lockedTaskIds.add(b.taskId);
@@ -417,7 +425,9 @@ export function generatePlan(input: ScheduleInput): DayPlan {
   for (const o of avail.overlaps) {
     conflicts.push({
       severity: 'critical',
-      message: `“${o.a.title}” (${fmtTime(o.a.start)}) overlaps “${o.b.title}” (${fmtTime(o.b.start)}).`,
+      message: o.viaTravel
+        ? `Travel time for “${o.a.title}” runs into “${o.b.title}”.`
+        : `“${o.a.title}” (${fmtTime(o.a.start)}) overlaps “${o.b.title}” (${fmtTime(o.b.start)}).`,
       suggestions: [
         o.a.fixed && o.b.fixed
           ? 'Both are marked fixed — one of them has to move. Edit it in Routine.'
@@ -425,6 +435,13 @@ export function generatePlan(input: ScheduleInput): DayPlan {
       ],
     });
   }
+
+  for (const m of bumped)
+    conflicts.push({
+      severity: 'info',
+      message: `“${m.title}” was moved because it clashed with “${m.clash}”.`,
+      suggestions: ['Check its new slot, or drag it somewhere else.'],
+    });
 
   const placedTasks = state.blocks
     .filter((b) => b.type === 'task' && !b.locked && b.taskId)

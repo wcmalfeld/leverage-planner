@@ -27,7 +27,7 @@ export interface Availability {
   busy: BusySpan[];
   windows: FreeWindow[];
   freeMin: Minutes;
-  overlaps: { a: Commitment; b: Commitment }[];
+  overlaps: { a: Commitment; b: Commitment; viaTravel: boolean }[];
 }
 
 export const len = (i: Interval) => Math.max(0, i.end - i.start);
@@ -85,10 +85,20 @@ export function computeAvailability(
   }
   busy.sort((a, b) => a.start - b.start);
 
-  const overlapPairs: { a: Commitment; b: Commitment }[] = [];
+  // Travel counts too: leaving at 7:00 clashes with breakfast until 7:15. Consecutive
+  // events at the same place need no travel between them, so they're exempt.
+  const withTravel = (c: Commitment): Interval => ({ start: c.start - (c.travelBeforeMin ?? 0), end: c.end + (c.travelAfterMin ?? 0) });
+  const overlapPairs: { a: Commitment; b: Commitment; viaTravel: boolean }[] = [];
   for (let i = 0; i < todays.length; i++)
-    for (let j = i + 1; j < todays.length; j++)
-      if (overlaps(todays[i], todays[j])) overlapPairs.push({ a: todays[i], b: todays[j] });
+    for (let j = i + 1; j < todays.length; j++) {
+      const [a, b] = [todays[i], todays[j]];
+      if (overlaps(a, b)) overlapPairs.push({ a, b, viaTravel: false });
+      // For travel clashes, `a` is the event whose travel causes it.
+      else if (!(a.location && a.location === b.location)) {
+        if (overlaps(withTravel(a), b)) overlapPairs.push({ a, b, viaTravel: true });
+        else if (overlaps(a, withTravel(b))) overlapPairs.push({ a: b, b: a, viaTravel: true });
+      }
+    }
 
   let free: Interval[] = [{ start: dayStart, end: dayEnd }];
   for (const b of busy) free = subtract(free, b);

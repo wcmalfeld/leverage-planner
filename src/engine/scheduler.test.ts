@@ -42,6 +42,16 @@ describe('availability', () => {
     expect(a.overlaps).toHaveLength(1);
   });
 
+  it('flags travel time that runs into another commitment, except between events at the same place', () => {
+    const breakfast = commitment({ id: 'breakfast', start: H(6, 30), end: H(7, 15) });
+    const dentist = commitment({ id: 'dentist', start: H(7, 15), end: H(8), travelBeforeMin: 15, location: 'clinic' });
+    const [o] = computeAvailability(DATE, settings(), [breakfast, dentist]).overlaps;
+    expect(o).toMatchObject({ viaTravel: true, a: { id: 'dentist' }, b: { id: 'breakfast' } });
+
+    const checkup = commitment({ id: 'checkup', start: H(8), end: H(8, 30), travelBeforeMin: 15, location: 'clinic' });
+    expect(computeAvailability(DATE, settings(), [dentist, checkup]).overlaps).toHaveLength(0);
+  });
+
   it('tags windows sandwiched between commitments at the same place', () => {
     const a = computeAvailability(DATE, settings(), [
       commitment({ id: 'am', start: H(8), end: H(12), location: 'campus' }),
@@ -195,6 +205,20 @@ describe('scheduler constraints', () => {
     expect(a2).toHaveLength(1);
     expect([a2[0].start, a2[0].end]).toEqual([H(19), H(20)]);
     expect(noOverlap(second.blocks)).toBe(true);
+  });
+
+  it('re-places a locked block when a new fixed event lands on top of it', () => {
+    const tasks = [task({ id: 'a', goalIds: ['career'], durationMin: 60, impact: 5 })];
+    const first = plan({ tasks });
+    const a = taskBlocks(first).find((b) => b.taskId === 'a')!;
+    const prev: DayPlan = { ...first, blocks: first.blocks.map((b) => (b.id === a.id ? { ...a, locked: true, status: 'accepted' as const } : b)) };
+    const dentist = commitment({ id: 'dentist', title: 'Dentist', days: [], date: DATE, start: a.start, end: a.end, kind: 'appointment' });
+    const second = plan({ tasks, previous: prev, commitments: [dentist] });
+    const a2 = taskBlocks(second).filter((b) => b.taskId === 'a');
+    expect(a2).toHaveLength(1);
+    expect(a2[0].start >= a.end || a2[0].end <= a.start).toBe(true);
+    expect(noOverlap(second.blocks)).toBe(true);
+    expect(second.conflicts.some((c) => c.message.includes('clashed with “Dentist”'))).toBe(true);
   });
 
   it('never schedules a rejected task, and keeps the task itself', () => {

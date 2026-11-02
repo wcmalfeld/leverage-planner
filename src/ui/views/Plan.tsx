@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import type { Block, ISODate } from '../../domain/types';
-import { useApp, update } from '../../store/store';
+import type { Block, Commitment, ISODate } from '../../domain/types';
+import { store, useApp, update } from '../../store/store';
 import { useDerived } from '../../store/derived';
-import { acceptAll, acceptBlock, completeTask, generateFor, rejectBlock, restoreRejected, setBlockTime, unlockBlock } from '../../store/actions';
-import { addDays, fmtDateLong, fmtDuration, fmtTime, fromHHMM, todayISO, uid } from '../../domain/time';
+import { acceptAll, acceptBlock, completeTask, deleteCommitment, generateFor, rejectBlock, restoreRejected, setBlockTime, unlockBlock, upsertCommitment } from '../../store/actions';
+import { addDays, fmtDateLong, fmtDuration, fmtTime, fromHHMM, toHHMM, todayISO, uid } from '../../domain/time';
+import { commitmentsForDate } from '../../engine/availability';
 import { TIER_INFO } from '../../engine/classify';
 import { topReasons } from '../../engine/scoring';
 import { Empty, GoalTag, Notice, TierChip, minutesOf, toast, useNow } from '../components/common';
@@ -85,7 +86,10 @@ export function PlanView({ initialDate }: { initialDate?: ISODate }) {
       </div>
 
       {!plan ? (
-        <div className="panel"><Empty title="No plan for this day yet">The engine will fit your highest-leverage tasks around your routine, energy and open-time preferences.<button className="btn primary" onClick={() => generateFor(date)}>Generate plan</button></Empty></div>
+        <div className="plan-layout">
+          <div className="panel"><Empty title="No plan for this day yet">Add anything you must attend first, then generate. The engine fits your highest-leverage tasks around your events, routine, energy and open-time preferences.<button className="btn primary" onClick={() => generateFor(date)}>Generate plan</button></Empty></div>
+          <aside className="side-sticky"><DayEvents date={date} /></aside>
+        </div>
       ) : (
         <div className="plan-layout">
           <section className="panel stack">
@@ -100,6 +104,7 @@ export function PlanView({ initialDate }: { initialDate?: ISODate }) {
           </section>
 
           <aside className="side-sticky">
+            <DayEvents date={date} />
             {selected ? <BlockPanel block={selected} date={date} onClose={() => setSel(undefined)} openTask={openTask} /> : (
               <div className="panel small muted">Select a block to accept, swap, remove or log it.</div>
             )}
@@ -206,6 +211,88 @@ function BlockPanel({ block: b, date, onClose, openTask }: { block: Block; date:
       {b.type === 'commitment' && (
         <p className="small muted">{b.fixed ? 'Fixed commitments never move automatically. Edit them in Routine.' : 'Drag to move it for this day only. The routine itself stays the same.'}</p>
       )}
+    </section>
+  );
+}
+
+/** One-off events for this date that the plan must work around. */
+function DayEvents({ date }: { date: ISODate }) {
+  const data = useApp();
+  const empty = { title: '', start: '09:00', end: '10:00', location: '', travel: '' };
+  const [form, setForm] = useState(empty);
+  const events = data.commitments.filter((c) => c.date === date).sort((a, b) => a.start - b.start);
+  const routineCount = commitmentsForDate(data.commitments, date).length - events.length;
+  const start = fromHHMM(form.start);
+  const end = fromHHMM(form.end);
+  const valid = form.title.trim() && end > start;
+
+  // Merge immediately when a plan exists; otherwise the event is picked up on Generate.
+  const refresh = (msg: string) => {
+    if (store.get().plans[date]) {
+      generateFor(date);
+      toast(`${msg} — plan rearranged around it`);
+    } else toast(`${msg} — it’ll be included when you generate the plan`);
+  };
+
+  const add = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!valid) return;
+    const travel = Number(form.travel) || 0;
+    const c: Commitment = {
+      id: uid('ev'),
+      title: form.title.trim(),
+      kind: 'appointment',
+      days: [],
+      date,
+      start,
+      end,
+      fixed: true,
+      essential: false,
+      location: form.location.trim() || undefined,
+      travelBeforeMin: travel || undefined,
+      travelAfterMin: travel || undefined,
+    };
+    upsertCommitment(c);
+    setForm({ ...empty, start: form.end, end: toHHMM(Math.min(end + 60, 24 * 60 - 1)) });
+    refresh(`Added “${c.title}”`);
+  };
+
+  return (
+    <section className="panel stack tight">
+      <div className="panel-head" style={{ marginBottom: 0 }}><h3>Must-attend events</h3><span className="xs muted">{events.length}</span></div>
+      {events.length === 0 ? (
+        <p className="small muted">Appointments, meetings or plans you can’t miss on this day. Recommended tasks are scheduled around them.</p>
+      ) : (
+        <div className="list">
+          {events.map((c) => (
+            <div key={c.id} className="item" style={{ alignItems: 'center' }}>
+              <span className="mono xs muted" style={{ minWidth: '6.5rem' }}>{fmtTime(c.start)}–{fmtTime(c.end)}</span>
+              <span className="grow small">
+                <span className="item-title">{c.title}</span>
+                {(c.location || c.travelBeforeMin) && <span className="xs muted"> · {[c.location, c.travelBeforeMin && `${c.travelBeforeMin} min travel each way`].filter(Boolean).join(' · ')}</span>}
+              </span>
+              <button className="iconbtn" onClick={() => { deleteCommitment(c.id); refresh(`Removed “${c.title}”`); }} aria-label={`Remove ${c.title}`}><Icon.trash /></button>
+            </div>
+          ))}
+        </div>
+      )}
+      <form className="stack tight" onSubmit={add}>
+        <input id="ev-title" className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Dentist, team meeting, pick up kids" aria-label="Event title" />
+        <div className="row nowrap">
+          <input id="ev-start" type="time" className="input" value={form.start} aria-label="Start time"
+            onChange={(e) => { const s2 = fromHHMM(e.target.value); setForm({ ...form, start: e.target.value, end: end > s2 ? form.end : toHHMM(Math.min(s2 + 60, 24 * 60 - 1)) }); }} />
+          <span className="xs muted">to</span>
+          <input id="ev-end" type="time" className={`input${end > start ? '' : ' invalid'}`} value={form.end} onChange={(e) => setForm({ ...form, end: e.target.value })} aria-label="End time" />
+        </div>
+        <div className="row nowrap">
+          <input id="ev-loc" className="input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Where (optional)" aria-label="Location" />
+          <input id="ev-travel" className="input" style={{ width: '7.5rem' }} inputMode="numeric" value={form.travel} onChange={(e) => setForm({ ...form, travel: e.target.value.replace(/\D/g, '') })} placeholder="Travel min" aria-label="Travel minutes each way" />
+        </div>
+        <div className="row between">
+          <span className="xs faint">{routineCount > 0 ? `Plus ${routineCount} routine item${routineCount > 1 ? 's' : ''} from Routine.` : ''}</span>
+          <button className="btn sm primary" disabled={!valid}><Icon.plus />Add event</button>
+        </div>
+      </form>
     </section>
   );
 }
