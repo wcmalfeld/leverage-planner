@@ -31,6 +31,9 @@ export function defaultSettings(): Settings {
     maxWorkMin: 360,
     defaultDurationMin: 30,
     homeLocation: 'home',
+    leverageBar: 45,
+    shutdown: { enabled: true, at: H(17, 30), durationMin: 15 },
+    nudges: { enabled: true, leadMin: 1 },
     weights: { ...DEFAULT_WEIGHTS },
   };
 }

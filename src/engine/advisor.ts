@@ -10,6 +10,7 @@ import type { AppData, Goal, ISODate, Task } from '../domain/types';
 import { addDays } from '../domain/time';
 import { goalWeight, isOpen } from './scoring';
 import { minutesByGoal } from './review';
+import { driftAlerts, stalledGoals } from './alignment';
 
 export interface Suggestion {
   id: string;
@@ -134,11 +135,24 @@ export function ruleSuggestions(data: AppData, today: ISODate): Suggestion[] {
       goalId: bn.goal.id,
     });
 
+  for (const d of driftAlerts(data, today))
+    out.push({
+      id: `drift_${d.goal.id}`,
+      kind: 'neglected',
+      title: `${d.goal.name} is under its target two weeks running`,
+      detail: `It got ${Math.round(d.shares[0] * 100)}% then ${Math.round(d.shares[1] * 100)}% of your goal time against a ${Math.round(d.target * 100)}% target. Protect a block for it early this week, or lower the target if priorities changed.`,
+      goalId: d.goal.id,
+    });
+  const stalls = new Map(stalledGoals(data, today).map((s) => [s.goal.id, s]));
+
   for (const g of data.goals.filter((g) => g.status === 'active').sort((a, b) => a.order - b.order)) {
     const gTasks = open.filter((t) => t.goalIds.includes(g.id));
-    if (!gTasks.length)
+    const stall = stalls.get(g.id);
+    if (stall?.reason === 'no-next-action')
       out.push({ id: `none_${g.id}`, kind: 'neglected', title: `${g.name} has no next action`, detail: 'A goal without a next action can’t be scheduled. Add one concrete step.', goalId: g.id });
-    else if (!mins[g.id] && g.importance >= 4 && !g.sustaining)
+    else if (stall?.reason === 'no-progress')
+      out.push({ id: `idle_${g.id}`, kind: 'neglected', title: `${g.name} has stalled`, detail: 'Nothing logged or finished for it in 14 days. Schedule its best task, or pause the goal if it’s not a priority right now.', goalId: g.id, taskId: stall.topTaskId });
+    else if (!mins[g.id] && g.importance >= 4 && !g.sustaining && !stall)
       out.push({ id: `idle_${g.id}`, kind: 'neglected', title: `No time on ${g.name} this week`, detail: `It’s rated ${g.importance}/5 but nothing was logged in 7 days.`, goalId: g.id });
 
     for (const m of g.milestones.filter((m) => !m.done).slice(0, 1))

@@ -47,6 +47,8 @@ export interface Goal {
   milestones: Milestone[];
   /** "Sustainability" goals (health, relationships) are protected rather than maximised. */
   sustaining?: boolean;
+  /** Share of your goal time you want this goal to get, in percent. Unset = implied by importance and order. */
+  targetShare?: number;
 }
 
 export interface Bottleneck {
@@ -92,6 +94,16 @@ export interface Task {
   outcome?: string;
   postponeCount: number;
   lastDoneOn?: ISODate; // for recurring tasks
+  /** Triage: hidden from planning until this date. */
+  snoozedUntil?: ISODate;
+  /** Triage: you chose to keep it even though it scores below the leverage bar. */
+  keepBelowBar?: boolean;
+  /** A day you committed to doing it (from the shutdown review) — the scheduler prioritises it then. */
+  plannedFor?: ISODate;
+  /** "Ready to resume": where you stopped and the very next step, written when you paused. */
+  resumeNote?: { text: string; date: ISODate };
+  /** The first concrete physical action — shown when its block starts, so starting takes no decision. */
+  firstStep?: string;
 }
 
 // ─────────────────────── Availability & routine ───────────────────────
@@ -154,12 +166,18 @@ export interface Settings {
   maxWorkMin: Minutes; // daily cap on scheduled task time — protects recovery
   defaultDurationMin: Minutes;
   homeLocation: string;
+  /** Tasks scoring below this are left out unless exempt (0 = off). */
+  leverageBar: number;
+  /** End-of-day reflection + plan-tomorrow block. */
+  shutdown: { enabled: boolean; at: Minutes; durationMin: Minutes };
+  /** A prompt when a block starts (in-app, plus a desktop notification if allowed). */
+  nudges: { enabled: boolean; leadMin: Minutes };
   weights: Weights;
 }
 
 // ───────────────────────────── Schedules ─────────────────────────────
 
-export type BlockType = 'commitment' | 'task' | 'break' | 'buffer' | 'travel';
+export type BlockType = 'commitment' | 'task' | 'break' | 'buffer' | 'travel' | 'shutdown';
 export type BlockStatus = 'proposed' | 'accepted' | 'rejected' | 'done' | 'skipped';
 
 export interface Block {
@@ -185,6 +203,8 @@ export interface UnscheduledItem {
   taskId: string;
   reason: string;
   important: boolean;
+  /** Left out only because it scores below the leverage bar. */
+  belowBar?: boolean;
 }
 
 export interface Conflict {
@@ -244,6 +264,8 @@ export interface DailyReview {
   outcomes: string;
   obstacles: string;
   changes: string;
+  /** "What did I learn today?" — the reflection prompt. */
+  learned?: string;
   energy?: Rating;
   savedAt: string;
 }

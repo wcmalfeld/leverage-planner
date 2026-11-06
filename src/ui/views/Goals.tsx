@@ -5,6 +5,7 @@ import { addGoal, addMilestone, addTask, deleteGoal, deleteMilestone, moveGoal, 
 import { todayISO } from '../../domain/time';
 import { detectBottleneck } from '../../engine/advisor';
 import { isOpen } from '../../engine/scoring';
+import { goalTargets, stalledGoals, STALL_LABEL, type Stall } from '../../engine/alignment';
 import { GOAL_COLORS } from '../../store/seed';
 import { ConfirmButton, Field, RatingInput, goalColor, toast } from '../components/common';
 import { Icon } from '../components/icons';
@@ -17,6 +18,7 @@ export function GoalsView() {
   const goals = [...data.goals].sort((a, b) => a.order - b.order);
   const [openId, setOpenId] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
+  const stalls = new Map(stalledGoals(data, todayISO()).map((s) => [s.goal.id, s]));
 
   return (
     <>
@@ -34,7 +36,7 @@ export function GoalsView() {
         <div className="panel-head"><h2>Goals</h2><span className="xs muted">Top of the list = highest priority</span></div>
         <div className="list">
           {goals.map((g, i) => (
-            <GoalRow key={g.id} goal={g} first={i === 0} last={i === goals.length - 1} open={openId === g.id} onToggle={() => setOpenId(openId === g.id ? null : g.id)} />
+            <GoalRow key={g.id} goal={g} stall={stalls.get(g.id)} first={i === 0} last={i === goals.length - 1} open={openId === g.id} onToggle={() => setOpenId(openId === g.id ? null : g.id)} />
           ))}
         </div>
         <form className="row" style={{ marginTop: '.75rem' }} onSubmit={(e) => { e.preventDefault(); if (!newName.trim()) return; const id = addGoal(newName.trim()); setNewName(''); setOpenId(id); }}>
@@ -101,13 +103,14 @@ function BottleneckCard() {
   );
 }
 
-function GoalRow({ goal: g, first, last, open, onToggle }: { goal: Goal; first: boolean; last: boolean; open: boolean; onToggle: () => void }) {
+function GoalRow({ goal: g, stall, first, last, open, onToggle }: { goal: Goal; stall?: Stall; first: boolean; last: boolean; open: boolean; onToggle: () => void }) {
   const data = useApp();
   const { openTask } = useUI();
   const set = (p: Partial<Goal>) => updateGoal(g.id, p);
   const tasks = data.tasks.filter((t) => t.goalIds.includes(g.id) && isOpen(t));
   const [ms, setMs] = useState({ title: '', horizon: 'quarter' as GoalHorizon, dueDate: '' });
   const [next, setNext] = useState('');
+  const target = goalTargets(data.goals).get(g.id);
   const progress = g.metric && g.metric.target > 0 ? Math.min(1, g.metric.current / g.metric.target) : undefined;
 
   return (
@@ -128,6 +131,8 @@ function GoalRow({ goal: g, first, last, open, onToggle }: { goal: Goal; first: 
           {g.status !== 'active' && <span className="chip">{g.status}</span>}
           {g.sustaining && <span className="chip ok">Sustaining</span>}
           <span>{tasks.length} open task{tasks.length === 1 ? '' : 's'}</span>
+          {target && <span title="Share of your goal time this goal should get">Target {Math.round(target.share * 100)}%{target.explicit ? '' : ' (implied)'}</span>}
+          {stall && <span className={`chip ${stall.reason === 'not-scheduled' ? '' : 'warn'}`} title={stall.detail}>{STALL_LABEL[stall.reason]}</span>}
           {g.milestones.length > 0 && <span>{g.milestones.filter((m) => m.done).length}/{g.milestones.length} milestones</span>}
         </div>
         {progress !== undefined && (
@@ -153,6 +158,10 @@ function GoalRow({ goal: g, first, last, open, onToggle }: { goal: Goal; first: 
                 </select>
               </Field>
             </div>
+            <Field label="Target share of goal time (%)" hint={`What part of the time you spend on goals should go here. Blank = implied by importance and order${target && !target.explicit ? ` (now ${Math.round(target.share * 100)}%)` : ''}. Compared with actual time on Today and in Review.`}>
+              <input id={`g-target-${g.id}`} className="input" style={{ maxWidth: 120 }} inputMode="numeric" placeholder={target ? String(Math.round(target.share * 100)) : ''} value={g.targetShare ?? ''}
+                onChange={(e) => { const v = e.target.value.replace(/\D/g, ''); set({ targetShare: v ? Math.min(100, Number(v)) : undefined }); }} />
+            </Field>
             <Field label="Desired outcome"><textarea id={`g-out-${g.id}`} className="input" value={g.outcome} onChange={(e) => set({ outcome: e.target.value })} /></Field>
             <Field label="Why it matters"><textarea id={`g-why-${g.id}`} className="input" value={g.why} onChange={(e) => set({ why: e.target.value })} /></Field>
             <div className="fields">

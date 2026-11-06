@@ -14,7 +14,7 @@ import type {
   Task,
   WeeklyReview,
 } from '../domain/types';
-import { todayISO, uid } from '../domain/time';
+import { addDays, todayISO, uid } from '../domain/time';
 import { GOAL_COLORS } from './seed';
 import { store, update } from './store';
 import { buildPlan } from './derived';
@@ -69,6 +69,8 @@ export function completeTask(id: string, date: ISODate, actualMin: number | unde
     }
     if (actualMin) t.actualMin = actualMin;
     if (outcome) t.outcome = outcome;
+    t.resumeNote = undefined;
+    t.plannedFor = undefined;
     d.actuals = d.actuals.filter((a) => !(a.date === date && a.taskId === id));
     if (actualMin) d.actuals.push({ id: uid('a'), date, title: t.title, minutes: actualMin, taskId: id });
     const plan = d.plans[date];
@@ -98,6 +100,56 @@ export function clarifyTask(id: string, next: Partial<Task> & { title: string })
     }
   });
   return childId;
+}
+
+/**
+ * "Ready to resume" (Leroy & Glomb 2018): a line on where you stopped and what's next
+ * lets you set the task down cleanly, and is shown the next time it comes up.
+ */
+export function pauseTask(id: string, date: ISODate, note: string, minutes: number) {
+  update((d) => {
+    const t = d.tasks.find((x) => x.id === id);
+    if (!t) return;
+    t.resumeNote = note.trim() ? { text: note.trim(), date } : t.resumeNote;
+    if (minutes > 0) d.actuals.push({ id: uid('a'), date, title: t.title, minutes, taskId: id });
+  });
+}
+
+/** Commit a task to a day (it gets priority there) and refresh that day's plan if one exists. */
+export function commitTo(id: string, date: ISODate) {
+  updateTask(id, { plannedFor: date, snoozedUntil: undefined });
+  if (store.get().plans[date]) generateFor(date);
+}
+
+// ───────── Triage ─────────
+
+export type TriageDecision = 'keep' | 'snooze' | 'someday' | 'drop';
+
+export function triageTask(id: string, decision: TriageDecision, today = todayISO()) {
+  if (decision === 'drop') return deleteTask(id);
+  update((d) => {
+    const t = d.tasks.find((x) => x.id === id);
+    if (!t) return;
+    if (decision === 'keep') t.keepBelowBar = true;
+    if (decision === 'snooze') t.snoozedUntil = addDays(today, 7);
+    if (decision === 'someday') t.status = 'deferred';
+  });
+}
+
+export function undoTriage(id: string) {
+  update((d) => {
+    const t = d.tasks.find((x) => x.id === id);
+    if (!t) return;
+    t.keepBelowBar = undefined;
+    t.snoozedUntil = undefined;
+    if (t.status === 'deferred') t.status = 'ready';
+  });
+}
+
+export function setLeverageBar(bar: number) {
+  update((d) => {
+    d.settings.leverageBar = Math.max(0, Math.min(100, Math.round(bar)));
+  });
 }
 
 // ───────── Time log ─────────
@@ -297,11 +349,17 @@ export function deleteCurrent(id: string) {
 
 // ───────── Reviews ─────────
 
+/** When an unfinished task gets picked up again: a date, the planner's choice, or someday. */
+export type PickUp = 'auto' | 'someday' | ISODate;
+
 export interface ReviewRow {
   taskId: string;
   done: boolean;
   minutes: number;
   outcome?: string;
+  /** Unfinished only: where you stopped / the next step. */
+  resume?: string;
+  pickUp?: PickUp;
 }
 
 /**
@@ -324,6 +382,8 @@ export function saveDailyReview(review: Omit<DailyReview, 'savedAt' | 'completed
         }
         t.actualMin = r.minutes || t.actualMin;
         if (r.outcome) t.outcome = r.outcome;
+        t.resumeNote = undefined;
+        t.plannedFor = undefined;
       } else {
         if (t.status === 'completed' && t.completedAt === date) {
           t.status = 'ready';
@@ -331,6 +391,14 @@ export function saveDailyReview(review: Omit<DailyReview, 'savedAt' | 'completed
         }
         if (!prev?.missedTaskIds.includes(t.id)) t.postponeCount += 1;
         if (t.status === 'scheduled' || t.status === 'in_progress') t.status = 'ready';
+        // Giving unfinished work a specific "when" is what lets your mind let go of it
+        // (Masicampo & Baumeister 2011).
+        if (r.resume?.trim()) t.resumeNote = { text: r.resume.trim(), date };
+        if (r.pickUp === 'someday') {
+          t.status = 'deferred';
+          t.plannedFor = undefined;
+        } else if (r.pickUp && r.pickUp !== 'auto') t.plannedFor = r.pickUp;
+        else if (r.pickUp === 'auto') t.plannedFor = undefined;
       }
       if (r.minutes > 0) d.actuals.push({ id: uid('a'), date, title: t.title, minutes: r.minutes, taskId: t.id });
     }
@@ -341,6 +409,7 @@ export function saveDailyReview(review: Omit<DailyReview, 'savedAt' | 'completed
     if (plan) for (const b of plan.blocks) {
       const r = rows.find((x) => x.taskId === b.taskId);
       if (r) b.status = r.done ? 'done' : 'skipped';
+      if (b.type === 'shutdown') b.status = 'done';
     }
     d.dailyReviews[date] = {
       ...review,

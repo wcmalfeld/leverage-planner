@@ -10,6 +10,8 @@
  * 5. Buffers follow every task; a real break is inserted after long focus runs.
  * 6. A slice of the day stays deliberately unscheduled.
  * 7. Anything important that didn't fit is reported with concrete fixes.
+ * 8. Tasks below the leverage bar are left out (see triage.ts), and a short
+ *    shutdown block at the end of the workday is reserved for review + planning.
  *
  * Pure function: same input → same plan.
  */
@@ -39,6 +41,7 @@ import {
 } from './availability';
 import { rankTasks, type RankedTask } from './scoring';
 import { classifyTask } from './classify';
+import { barStatus, isSnoozed } from './triage';
 
 export interface ScheduleInput {
   date: ISODate;
@@ -83,7 +86,7 @@ export function generatePlan(input: ScheduleInput): DayPlan {
   const prev = input.previous;
   const rejected = new Set(prev?.rejectedTaskIds ?? []);
   const keep = (prev?.blocks ?? []).filter(
-    (b) => (b.locked || b.status === 'done') && b.status !== 'rejected' && (b.type === 'task' || b.type === 'commitment'),
+    (b) => (b.locked || b.status === 'done') && b.status !== 'rejected' && (b.type === 'task' || b.type === 'commitment' || b.type === 'shutdown'),
   );
   const moved: Record<string, Interval> = {};
   for (const b of keep) if (b.type === 'commitment' && b.commitmentId) moved[b.commitmentId] = b;
@@ -142,6 +145,21 @@ export function generatePlan(input: ScheduleInput): DayPlan {
     if (b.taskId) lockedTaskIds.add(b.taskId);
   }
 
+  // Shutdown: a short end-of-day block to reflect and plan tomorrow. A user-moved one stays put.
+  const sd = settings.shutdown;
+  if (sd?.enabled) {
+    const kept = keep.find((b) => b.type === 'shutdown' && !avail.busy.some((s) => overlaps(s, b)));
+    const slot = kept ?? shutdownSlot(state.free, sd.at, sd.durationMin);
+    if (slot) {
+      state.blocks.push(
+        kept
+          ? { ...kept }
+          : { id: nextId(), date, start: slot.start, end: slot.end, title: 'Shutdown: review & plan tomorrow', type: 'shutdown', goalIds: [], status: 'proposed', fixed: false },
+      );
+      state.free = subtractWindows(state.free, slot);
+    }
+  }
+
   const tasksById = new Map(input.tasks.map((t) => [t.id, t]));
   const ranked = rankTasks(input.tasks, settings.weights, {
     today: date,
@@ -161,13 +179,24 @@ export function generatePlan(input: ScheduleInput): DayPlan {
     if (lockedTaskIds.has(t.id)) continue;
     if (!occursOn(t, date)) continue;
     if (rejected.has(t.id)) continue;
+    if (isSnoozed(t, date)) continue;
     if (t.status === 'inbox') {
       unscheduled.push({ taskId: t.id, reason: 'Still in the inbox — clarify it into a concrete next action first', important: false });
       continue;
     }
     const cls = classifyTask(t, r.result, goals);
-    if (cls.tier === 'reduce' && !prerequisiteIds.has(t.id)) {
+    if (cls.tier === 'reduce' && !prerequisiteIds.has(t.id) && !t.keepBelowBar) {
       unscheduled.push({ taskId: t.id, reason: 'Flagged as low-leverage — left out on purpose', important: false });
+      continue;
+    }
+    const bar = barStatus(t, r.result.score, cls.tier, date, settings.leverageBar ?? 0, prerequisiteIds.has(t.id));
+    if (bar.below && !bar.exempt) {
+      unscheduled.push({
+        taskId: t.id,
+        reason: `Below your leverage bar (scores ${Math.round(r.result.score)}, bar is ${settings.leverageBar})`,
+        important: false,
+        belowBar: true,
+      });
       continue;
     }
     pending.set(t.id, r);
@@ -176,9 +205,10 @@ export function generatePlan(input: ScheduleInput): DayPlan {
   const isImportant = (r: RankedTask) => {
     const cls = classifyTask(r.task, r.result, goals);
     const due = r.task.deadline ? daysBetween(date, r.task.deadline) : 99;
-    return cls.tier === 'protect' || due <= 1;
+    return cls.tier === 'protect' || due <= 1 || r.task.plannedFor === date;
   };
   const dueToday = (t: Task) => !!t.deadline && daysBetween(date, t.deadline) <= 0;
+  const committedToday = (t: Task) => t.plannedFor === date;
 
   const placedPerGoal: Record<string, number> = {};
   const placed = new Set<string>();
@@ -407,10 +437,12 @@ export function generatePlan(input: ScheduleInput): DayPlan {
     const dup = placedPerGoal[g] ?? 0;
     return r.result.score - 6 * dup + (dueToday(r.task) ? 15 : 0);
   };
+  // Tasks you committed to this day go first: you already decided, so they don't compete on score.
+  const committedFirst = (a: RankedTask, b: RankedTask) => Number(committedToday(b.task)) - Number(committedToday(a.task));
   while (true) {
     const candidates = [...pending.values()].filter((r) => !placed.has(r.task.id) && !failed.has(r.task.id));
     if (!candidates.length) break;
-    candidates.sort((a, b) => boost(b) - boost(a) || a.rank - b.rank);
+    candidates.sort((a, b) => committedFirst(a, b) || boost(b) - boost(a) || a.rank - b.rank);
     placeTask(candidates[0]);
   }
 
@@ -501,7 +533,21 @@ export function generatePlan(input: ScheduleInput): DayPlan {
   };
 }
 
-const typeRank = (b: Block) => ['travel', 'commitment', 'task', 'break', 'buffer'].indexOf(b.type);
+const typeRank = (b: Block) => ['travel', 'commitment', 'task', 'shutdown', 'break', 'buffer'].indexOf(b.type);
+
+/**
+ * Where the shutdown block goes: at the preferred time if it's free, otherwise the
+ * next free slot after it, otherwise as late as possible before it.
+ */
+export function shutdownSlot(free: Interval[], at: Minutes, d: Minutes): Interval | null {
+  const fits = free.filter((w) => len(w) >= d);
+  const at0 = fits.find((w) => w.start <= at && w.end >= at + d);
+  if (at0) return { start: at, end: at + d };
+  const after = fits.find((w) => w.start > at);
+  if (after) return { start: after.start, end: after.start + d };
+  const before = [...fits].reverse().find((w) => w.end <= at + d);
+  return before ? { start: before.end - d, end: before.end } : null;
+}
 
 function subtractWindows(free: FreeWindow[], cut: Interval): FreeWindow[] {
   const out: FreeWindow[] = [];

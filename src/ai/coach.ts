@@ -111,6 +111,29 @@ export class ClaudeAdvisor implements StrategyAdvisor {
   }
 }
 
+const FirstStepSchema = z.object({ firstStep: z.string() });
+
+/** One concrete first action for a task: small enough to start without deciding anything. */
+export async function suggestFirstStep(apiKey: string, data: AppData, today: ISODate, taskId: string): Promise<string> {
+  const t = data.tasks.find((x) => x.id === taskId);
+  if (!t) throw new Error('Task not found.');
+  const res = await client(apiKey).beta.messages.parse({
+    model: MODEL,
+    max_tokens: 4000,
+    ...FALLBACK,
+    output_config: { effort: 'low', format: betaZodOutputFormat(FirstStepSchema) },
+    system: COACH_SYSTEM,
+    messages: [{
+      role: 'user',
+      content: `${snapshot(data, today)}\n\nWrite the first step for [task:${t.id}] “${t.title}”: the very first physical action, doable in 2–5 minutes, specific enough to start without deciding anything (e.g. “Open last quarter's deck and copy the revenue slide”). One sentence, no preamble.`,
+    }],
+  });
+  if (res.stop_reason === 'refusal') throw new Error('Claude declined to answer this one.');
+  const step = res.parsed_output?.firstStep.trim();
+  if (!step) throw new Error('Claude’s answer was cut off or unreadable. Try again.');
+  return step;
+}
+
 // ─────────────────────────────── Chat ───────────────────────────────
 
 export type ChatMessage = Anthropic.Beta.BetaMessageParam;

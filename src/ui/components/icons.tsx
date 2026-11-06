@@ -32,6 +32,8 @@ export const Icon = {
   arrow: I(<path d="M5 12h14M13 6l6 6-6 6" />),
   download: I(<><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></>),
   upload: I(<><path d="M12 20V9M7 14l5-5 5 5M5 4h14" /></>),
+  funnel: I(<path d="M3 5h18l-7 8v6l-4 2v-8z" />),
+  pause: I(<path d="M9 5v14M15 5v14" />),
   flag: I(<><path d="M5 21V4M5 4h11l-2 4 2 4H5" /></>),
 };
 

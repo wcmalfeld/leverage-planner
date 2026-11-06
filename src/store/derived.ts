@@ -20,8 +20,9 @@ function hash(s: string): string {
 }
 
 export function planSignature(data: AppData): string {
-  const tasks = data.tasks.map((t) => [t.id, t.status, t.durationMin, t.deadline, t.impact, t.confidence, t.compounding, t.goalIds, t.dependsOn, t.energy, t.location, t.removesBottleneck, t.splittable, t.tierOverride, t.recurrence, t.lastDoneOn]);
-  return hash(JSON.stringify([tasks, data.commitments, data.settings, data.goals.map((g) => [g.id, g.importance, g.order, g.status]), data.bottleneck.goalIds]));
+  const tasks = data.tasks.map((t) => [t.id, t.status, t.durationMin, t.deadline, t.impact, t.confidence, t.compounding, t.goalIds, t.dependsOn, t.energy, t.location, t.removesBottleneck, t.splittable, t.tierOverride, t.recurrence, t.lastDoneOn, t.snoozedUntil, t.keepBelowBar, t.plannedFor]);
+  const { nudges: _n, ...settings } = data.settings; // nudges don't change the plan
+  return hash(JSON.stringify([tasks, data.commitments, settings, data.goals.map((g) => [g.id, g.importance, g.order, g.status]), data.bottleneck.goalIds]));
 }
 
 export function buildPlan(data: AppData, date: ISODate, previous?: DayPlan): DayPlan {

@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import type { Rating } from '../../domain/types';
 import { useApp } from '../../store/store';
-import { saveDailyReview, saveWeeklyReview, type ReviewRow } from '../../store/actions';
+import { generateFor, saveDailyReview, saveWeeklyReview, type PickUp, type ReviewRow } from '../../store/actions';
 import { addDays, fmtDateLong, fmtDateShort, fmtDuration, todayISO, weekStart } from '../../domain/time';
 import { goalTrend, planVsActual, weeklySummary } from '../../engine/review';
+import { scorecard } from '../../engine/alignment';
+import { ScorecardPanel } from '../components/Scorecard';
 import { Empty, Field, GoalTag, RatingInput, Seg, goalColor, toast } from '../components/common';
 import { Icon } from '../components/icons';
 import { useUI } from '../App';
@@ -18,9 +20,9 @@ export function ReviewView() {
         <div>
           <div className="eyebrow">Review</div>
           <h1>Close the loop</h1>
-          <p>A few minutes of honest review is what makes tomorrow’s plan smarter: actual durations recalibrate estimates, time logs balance goals, and postponements flag tasks to break down. Unfinished work simply rolls forward.</p>
+          <p>Your end-of-day shutdown. In one field study, 15 minutes of end-of-day reflection lifted performance by about 23%. Giving each unfinished task a next step and a day lets you stop thinking about it tonight. Actual durations also recalibrate your estimates.</p>
         </div>
-        <Seg<Tab> label="Review type" value={tab} onChange={setTab} options={[{ v: 'daily', l: 'Today' }, { v: 'weekly', l: 'This week' }, { v: 'trends', l: 'Progress over time' }]} />
+        <Seg<Tab> label="Review type" value={tab} onChange={setTab} options={[{ v: 'daily', l: 'Shutdown' }, { v: 'weekly', l: 'This week' }, { v: 'trends', l: 'Progress over time' }]} />
       </header>
       {tab === 'daily' && <Daily />}
       {tab === 'weekly' && <Weekly />}
@@ -49,7 +51,8 @@ function DailyForm({ date, setDate, saved }: { date: string; setDate: (d: string
       const logged = data.actuals.filter((a) => a.date === date && a.taskId === id).reduce((s, a) => s + a.minutes, 0);
       const planned = (plan?.blocks ?? []).filter((b) => b.taskId === id).reduce((s, b) => s + b.end - b.start, 0);
       const done = t.completedAt === date || t.lastDoneOn === date || !!saved?.completedTaskIds.includes(id);
-      return { taskId: id, done, minutes: logged || (done ? planned || t.durationMin || 0 : 0), outcome: t.outcome };
+      const pickUp: PickUp = t.status === 'deferred' ? 'someday' : t.plannedFor && t.plannedFor > date ? t.plannedFor : 'auto';
+      return { taskId: id, done, minutes: logged || (done ? planned || t.durationMin || 0 : 0), outcome: t.outcome, resume: t.resumeNote?.text ?? '', pickUp };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
@@ -58,7 +61,9 @@ function DailyForm({ date, setDate, saved }: { date: string; setDate: (d: string
     const x = data.actuals.filter((a) => a.date === date && a.distraction).map((a) => ({ title: a.title, minutes: a.minutes }));
     return x.length ? x : [{ title: '', minutes: 0 }];
   });
-  const [text, setText] = useState({ outcomes: saved?.outcomes ?? '', obstacles: saved?.obstacles ?? '', changes: saved?.changes ?? '' });
+  const [text, setText] = useState({ learned: saved?.learned ?? '', outcomes: saved?.outcomes ?? '', obstacles: saved?.obstacles ?? '', changes: saved?.changes ?? '' });
+  const { openPlan } = useUI();
+  const tomorrow = addDays(date, 1);
   const [energy, setEnergy] = useState<Rating | undefined>(saved?.energy);
   const [extra, setExtra] = useState('');
   const pva = planVsActual(plan, data.tasks, data.actuals, date);
@@ -88,6 +93,25 @@ function DailyForm({ date, setDate, saved }: { date: string; setDate: (d: string
                 <div className="grow stack" style={{ gap: 4 }}>
                   <span className="item-title" style={r.done ? undefined : { color: 'var(--muted)' }}>{t.title}</span>
                   {r.done && <input id={`rv-out-${r.taskId}`} className="input" placeholder="Outcome (optional): what did it produce?" value={r.outcome ?? ''} onChange={(e) => setRow(i, { outcome: e.target.value })} />}
+                  {!r.done && (
+                    <>
+                      <input id={`rv-res-${r.taskId}`} className="input" placeholder="Where did you stop / what’s the next step?" value={r.resume ?? ''} onChange={(e) => setRow(i, { resume: e.target.value })} aria-label={`Next step for ${t.title}`} />
+                      <div className="row nowrap xs">
+                        <span className="muted">Pick it up</span>
+                        <select id={`rv-pick-${r.taskId}`} className="input" style={{ width: 'auto' }} aria-label={`When to pick up ${t.title}`}
+                          value={r.pickUp === 'auto' || r.pickUp === 'someday' || r.pickUp === tomorrow ? r.pickUp : 'date'}
+                          onChange={(e) => setRow(i, { pickUp: e.target.value === 'date' ? addDays(date, 2) : (e.target.value as PickUp) })}>
+                          <option value={tomorrow}>Tomorrow</option>
+                          <option value="date">On a specific day…</option>
+                          <option value="auto">Whenever it ranks highest</option>
+                          <option value="someday">Someday (out of plans)</option>
+                        </select>
+                        {r.pickUp && r.pickUp !== 'auto' && r.pickUp !== 'someday' && r.pickUp !== tomorrow && (
+                          <input id={`rv-pickd-${r.taskId}`} type="date" className="input" style={{ width: 'auto' }} min={tomorrow} value={r.pickUp} onChange={(e) => e.target.value && setRow(i, { pickUp: e.target.value })} aria-label="Pick-up date" />
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
                 <input id={`rv-min-${r.taskId}`} className="input" style={{ width: 76 }} inputMode="numeric" value={r.minutes || ''} placeholder="min" onChange={(e) => setRow(i, { minutes: Number(e.target.value.replace(/\D/g, '')) || 0 })} aria-label={`Minutes on ${t.title}`} />
               </div>
@@ -113,6 +137,7 @@ function DailyForm({ date, setDate, saved }: { date: string; setDate: (d: string
           <div><button className="btn sm ghost" onClick={() => setDistractions([...distractions, { title: '', minutes: 0 }])}><Icon.plus />Another</button></div>
         </div>
 
+        <Field label="What did you learn today?" hint="A sentence or two: about the work, how you worked, or what to do differently."><textarea id="rv-learned" className="input" value={text.learned} onChange={(e) => setText({ ...text, learned: e.target.value })} placeholder="e.g. Calls go better when I send the agenda first. I underestimated the résumé edits by half." /></Field>
         <Field label="Meaningful outcomes"><textarea id="rv-outcomes" className="input" value={text.outcomes} onChange={(e) => setText({ ...text, outcomes: e.target.value })} placeholder="A reply, a booked call, a shipped feature…" /></Field>
         <Field label="Unexpected obstacles"><textarea id="rv-obst" className="input" value={text.obstacles} onChange={(e) => setText({ ...text, obstacles: e.target.value })} /></Field>
         <Field label="Have priorities or circumstances changed?"><textarea id="rv-changes" className="input" value={text.changes} onChange={(e) => setText({ ...text, changes: e.target.value })} /></Field>
@@ -121,9 +146,15 @@ function DailyForm({ date, setDate, saved }: { date: string; setDate: (d: string
         <div className="row">
           <button className="btn primary" onClick={() => {
             saveDailyReview({ date, ...text, energy }, rows, distractions);
+            generateFor(tomorrow);
+            toast('Saved — here’s tomorrow’s plan');
+            openPlan(tomorrow);
+          }}><Icon.check />Save & plan tomorrow</button>
+          <button className="btn" onClick={() => {
+            saveDailyReview({ date, ...text, energy }, rows, distractions);
             toast(doneCount ? `Saved — ${doneCount} done. The rest rolls forward.` : 'Saved. Tomorrow is a fresh plan.');
-          }}><Icon.check />Save review</button>
-          <span className="small muted">{doneCount} of {rows.length} done. Unchecked tasks return to your list; nothing is lost.</span>
+          }}>Save only</button>
+          <span className="small muted">{doneCount} of {rows.length} done. Unchecked tasks keep their next step and pick-up day.</span>
         </div>
       </section>
 
@@ -158,10 +189,11 @@ function Weekly() {
   const data = useApp();
   const [ws, setWs] = useState(weekStart(todayISO()));
   const s = useMemo(() => weeklySummary(data, ws), [data, ws]);
+  const card = useMemo(() => scorecard(data, ws, addDays(ws, 6)), [data, ws]);
   const saved = data.weeklyReviews[ws];
   const [notes, setNotes] = useState({ notes: saved?.notes ?? '', nextWeekFocus: saved?.nextWeekFocus ?? '' });
   const { openTask, go } = useUI();
-  const totalMin = s.byGoal.reduce((a, b) => a + b.minutes, 0) + s.unlinkedMin;
+  const totalMin = s.byGoal.reduce((a, b) => a + b.minutes, 0);
 
   return (
     <div className="stack loose">
@@ -187,20 +219,7 @@ function Weekly() {
           <ul className="stack tight" style={{ margin: 0, paddingLeft: '1.1rem' }}>{s.recommendations.map((r, i) => <li key={i}>{r}</li>)}</ul>
           {s.bottleneckChanged ? null : <p className="small muted" style={{ marginTop: '.6rem' }}>Is “{data.bottleneck.statement || 'no bottleneck set'}” still the constraint? <button className="btn ghost sm" onClick={() => go('goals')}>Revisit</button></p>}
         </section>
-        <section className="panel">
-          <div className="panel-head"><h3>Time by goal vs priority</h3></div>
-          <div className="alloc">
-            {s.byGoal.map((g) => [
-              <GoalTag key={g.goal.id + 'l'} goal={g.goal} />,
-              <div key={g.goal.id + 'b'} className="bars">
-                <div className="bar cur" style={{ width: `${g.fairShare * 100}%` }} title={`Priority share ${Math.round(g.fairShare * 100)}%`} />
-                <div className="bar" style={{ width: `${g.share * 100}%`, background: goalColor(g.goal) }} title={`Actual ${Math.round(g.share * 100)}%`} />
-              </div>,
-              <span key={g.goal.id + 'v'} className="delta">{fmtDuration(g.minutes)}</span>,
-            ])}
-          </div>
-          <p className="xs faint" style={{ marginTop: '.5rem' }}>Grey: share implied by your goal ratings. Colour: share of time you actually logged.</p>
-        </section>
+        <ScorecardPanel card={card} />
       </div>
 
       <div className="grid3">

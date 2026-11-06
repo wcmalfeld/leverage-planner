@@ -3,6 +3,7 @@ import { useApp, store } from '../store/store';
 import { BrandMark, Icon } from './components/icons';
 import { Notice, ToastHost } from './components/common';
 import { TaskDrawer } from './components/TaskDrawer';
+import { NudgeBanner } from './components/Nudges';
 import { TodayView } from './views/Today';
 import { PlanView } from './views/Plan';
 import { CompareView } from './views/Compare';
@@ -13,6 +14,7 @@ import { RoutineView } from './views/Routine';
 import { ReviewView } from './views/Review';
 import { DataView } from './views/Data';
 import { CalendarView } from './views/Calendar';
+import { TriageView, useTriageCount } from './views/Triage';
 import type { ISODate } from '../domain/types';
 import { todayISO } from '../domain/time';
 import { Onboarding } from './views/Onboarding';
@@ -20,7 +22,7 @@ import { Onboarding } from './views/Onboarding';
 // Loaded on demand so the Anthropic SDK only downloads for people who use the coach.
 const CoachView = lazy(() => import('./views/Coach').then((m) => ({ default: m.CoachView })));
 
-export type View = 'today' | 'plan' | 'calendar' | 'compare' | 'coach' | 'tasks' | 'priorities' | 'goals' | 'routine' | 'review' | 'data';
+export type View = 'today' | 'plan' | 'calendar' | 'compare' | 'coach' | 'tasks' | 'priorities' | 'triage' | 'goals' | 'routine' | 'review' | 'data';
 
 const NAV: { id: View; label: string; icon: () => ReactNode }[] = [
   { id: 'today', label: 'Today', icon: Icon.today },
@@ -30,6 +32,7 @@ const NAV: { id: View; label: string; icon: () => ReactNode }[] = [
   { id: 'coach', label: 'Coach', icon: Icon.spark },
   { id: 'tasks', label: 'Tasks', icon: Icon.tasks },
   { id: 'priorities', label: 'Priorities', icon: Icon.rank },
+  { id: 'triage', label: 'Triage', icon: Icon.funnel },
   { id: 'goals', label: 'Goals', icon: Icon.goals },
   { id: 'routine', label: 'Routine', icon: Icon.routine },
   { id: 'review', label: 'Review', icon: Icon.review },
@@ -70,6 +73,7 @@ export function App() {
   };
 
   const inbox = data.tasks.filter((t) => t.status === 'inbox').length;
+  const triageCount = useTriageCount();
 
   const page = {
     today: <TodayView />,
@@ -79,6 +83,7 @@ export function App() {
     coach: <CoachView />,
     tasks: <TasksView />,
     priorities: <PrioritiesView />,
+    triage: <TriageView />,
     goals: <GoalsView />,
     routine: <RoutineView />,
     review: <ReviewView />,
@@ -102,6 +107,7 @@ export function App() {
                 <n.icon />
                 <span>{n.label}</span>
                 {n.id === 'tasks' && inbox > 0 && <span className="count">{inbox}</span>}
+                {n.id === 'triage' && triageCount > 0 && <span className="count">{triageCount}</span>}
               </button>
             ))}
           </div>
@@ -115,6 +121,7 @@ export function App() {
             {!store.adapter.durable && (
               <Notice kind="warn">This browser is blocking storage, so changes last only until you close the tab. Use Data → Export to keep a copy.</Notice>
             )}
+            {data.onboarded && <NudgeBanner />}
             <Suspense fallback={<p className="small muted">Loading…</p>}>{page}</Suspense>
           </div>
         </main>

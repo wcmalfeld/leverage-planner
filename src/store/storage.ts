@@ -66,7 +66,13 @@ export function migrate(input: unknown, fallback: AppData): AppData {
   return {
     ...fallback,
     ...d,
-    settings: { ...fallback.settings, ...d.settings, weights: { ...fallback.settings.weights, ...d.settings?.weights } },
+    settings: {
+      ...fallback.settings,
+      ...d.settings,
+      weights: { ...fallback.settings.weights, ...d.settings?.weights },
+      shutdown: { ...fallback.settings.shutdown, ...d.settings?.shutdown },
+      nudges: { ...fallback.settings.nudges, ...d.settings?.nudges },
+    },
     bottleneck: { ...fallback.bottleneck, ...d.bottleneck },
     tasks: d.tasks.map((t) => ({ ...t, dependsOn: t.dependsOn ?? [], recurrence: t.recurrence ?? 'none', postponeCount: t.postponeCount ?? 0, goalIds: t.goalIds ?? [] })),
     plans: d.plans ?? {},

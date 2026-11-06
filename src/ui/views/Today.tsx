@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../store/store';
 import { useDerived } from '../../store/derived';
 import { completeTask, generateFor, logActual } from '../../store/actions';
-import { addDays, fmtDateLong, fmtDuration, fmtTime, todayISO } from '../../domain/time';
-import { goalWeight } from '../../engine/scoring';
-import { minutesByGoal } from '../../engine/review';
-import { Empty, GoalTag, Notice, TierChip, goalColor, minutesOf, toast, useNow } from '../components/common';
+import { fmtDateLong, fmtDuration, fmtTime, todayISO } from '../../domain/time';
+import { stalledGoals, weekScorecard } from '../../engine/alignment';
+import { Empty, GoalTag, Notice, TierChip, minutesOf, toast, useNow } from '../components/common';
 import { Timeline } from '../components/Timeline';
 import { Icon } from '../components/icons';
 import { useUI } from '../App';
+import { NextStep, PauseForm } from '../components/ResumeNote';
+import { ScorecardPanel, StalledGoals } from '../components/Scorecard';
 
 export function TodayView() {
   const data = useApp();
@@ -25,7 +26,8 @@ export function TodayView() {
   const goalsById = useMemo(() => new Map(data.goals.map((g) => [g.id, g])), [data.goals]);
   const plan = d.plan;
   const blocks = plan?.blocks ?? [];
-  const current = blocks.find((b) => (b.type === 'task' || b.type === 'commitment') && b.start <= nowMin && b.end > nowMin);
+  const current = blocks.find((b) => (b.type === 'task' || b.type === 'commitment' || b.type === 'shutdown') && b.start <= nowMin && b.end > nowMin);
+  const [pausing, setPausing] = useState(false);
   const nextTask = blocks.find((b) => b.type === 'task' && b.start >= nowMin && b.status !== 'done' && b.id !== current?.id);
   const upcoming = blocks.filter((b) => b.type === 'commitment' && b.start >= nowMin).slice(0, 3);
   const tiers = new Map([...d.classes].map(([k, v]) => [k, v.tier]));
@@ -33,17 +35,9 @@ export function TodayView() {
 
   const unscheduledImportant = (plan?.unscheduled ?? []).filter((u) => u.important);
 
-  // Am I spending time in line with my priorities? Plan vs priority share vs last 7 days.
-  const alignment = useMemo(() => {
-    const active = data.goals.filter((g) => g.status === 'active').sort((a, b) => a.order - b.order);
-    const wSum = active.reduce((s, g) => s + goalWeight(g, data.goals), 0) || 1;
-    const planned: Record<string, number> = {};
-    for (const b of blocks) if (b.type === 'task') planned[b.goalIds[0] ?? '_'] = (planned[b.goalIds[0] ?? '_'] ?? 0) + b.end - b.start;
-    const pTotal = Object.values(planned).reduce((a, b) => a + b, 0) || 1;
-    const week = minutesByGoal(data.actuals, data.tasks, addDays(today, -7), addDays(today, -1));
-    const wTotal = Object.values(week).reduce((a, b) => a + b, 0) || 1;
-    return active.map((g) => ({ g, fair: goalWeight(g, data.goals) / wSum, plan: (planned[g.id] ?? 0) / pTotal, week: (week[g.id] ?? 0) / wTotal }));
-  }, [data, blocks, today]);
+  // Is my time going to my goals? This week's scorecard, and goals that are fading.
+  const card = useMemo(() => weekScorecard(data, today), [data, today]);
+  const stalls = useMemo(() => stalledGoals(data, today, d.ranked), [data, today, d.ranked]);
 
   const [log, setLog] = useState({ taskId: '', minutes: '' });
 
@@ -76,11 +70,19 @@ export function TodayView() {
               <span className="label">Now · until {fmtTime(current.end)}</span>
               <span className="t">{current.title}</span>
               <div className="progress"><i style={{ width: `${Math.min(100, ((nowMin - current.start) / (current.end - current.start)) * 100)}%` }} /></div>
-              {current.taskId && current.status !== 'done' && (
+              <NextStep task={current.taskId ? d.tasksById.get(current.taskId) : undefined} compact />
+              {current.taskId && current.status !== 'done' && !pausing && (
                 <div className="row">
                   <button className="btn sm primary" onClick={() => { completeTask(current.taskId!, today, nowMin - current.start || current.end - current.start); toast('Logged as done'); }}><Icon.check />Done</button>
-                  <button className="btn sm" onClick={() => openTask(current.taskId!)}>Details</button>
+                  <button className="btn sm" onClick={() => setPausing(true)}><Icon.pause />Pause</button>
+                  <button className="btn sm ghost" onClick={() => openTask(current.taskId!)}>Details</button>
                 </div>
+              )}
+              {pausing && current.taskId && d.tasksById.get(current.taskId) && (
+                <PauseForm task={d.tasksById.get(current.taskId)!} date={today} minutes={Math.max(0, nowMin - current.start)} onDone={() => setPausing(false)} />
+              )}
+              {current.type === 'shutdown' && current.status !== 'done' && (
+                <div className="row"><button className="btn sm primary" onClick={() => go('review')}><Icon.review />Start shutdown review</button></div>
               )}
             </div>
           ) : (
@@ -96,6 +98,7 @@ export function TodayView() {
               <>
                 <span className="t">{nextTask.title}</span>
                 <span className="small muted mono">{fmtTime(nextTask.start)}–{fmtTime(nextTask.end)}</span>
+                <NextStep task={nextTask.taskId ? d.tasksById.get(nextTask.taskId) : undefined} compact />
               </>
             ) : <span className="small muted">Nothing else planned today.</span>}
             {upcoming.length > 0 && (
@@ -134,6 +137,7 @@ export function TodayView() {
                   <GoalTag goal={a.goal} />
                   {a.block ? <span className="xs mono muted">{fmtTime(a.block.start)}–{fmtTime(a.block.end)}</span> : <span className="xs chip warn">Not scheduled</span>}
                 </div>
+                <NextStep task={a.task} compact />
                 <dl>
                   <div><dt>Why it matters</dt><dd>{a.why}.</dd></div>
                   <div><dt>Success looks like</dt><dd>{a.success}</dd></div>
@@ -162,6 +166,8 @@ export function TodayView() {
         </section>
 
         <div className="stack">
+          <StalledGoals stalls={stalls} />
+
           <section className="panel">
             <div className="panel-head"><h2>Stop or postpone today</h2></div>
             {d.stop.length === 0 ? <p className="muted small">Nothing low-value is competing for today. Add your current routine in Compare to see what to cut.</p> : (
@@ -193,23 +199,7 @@ export function TodayView() {
             )}
           </section>
 
-          <section className="panel">
-            <div className="panel-head"><h2>Is my time going where I want?</h2></div>
-            <div className="stack tight">
-              <div className="row xs muted"><span style={{ width: 120 }} /><span className="grow">Priority share · today’s plan · last 7 days</span></div>
-              {alignment.map(({ g, fair, plan: p, week }) => (
-                <div key={g.id} className="row nowrap small">
-                  <span style={{ width: 120, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</span>
-                  <div className="grow stack" style={{ gap: 2 }}>
-                    <div className="meter"><i style={{ width: `${fair * 100}%`, background: 'var(--line)', outline: '1px solid var(--faint)' }} /></div>
-                    <div className="meter"><i style={{ width: `${p * 100}%`, background: goalColor(g) }} /></div>
-                    <div className="meter"><i style={{ width: `${week * 100}%`, background: goalColor(g), opacity: 0.45 }} /></div>
-                  </div>
-                </div>
-              ))}
-              <p className="xs faint">Top bar: the share your goal ratings imply. Middle: today’s plan. Bottom: what you actually logged this past week.</p>
-            </div>
-          </section>
+          <ScorecardPanel card={card} title="This week: is my time going to my goals?" />
 
           <section className="panel">
             <div className="panel-head"><h2>Log progress</h2></div>

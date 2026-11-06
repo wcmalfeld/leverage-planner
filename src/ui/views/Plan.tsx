@@ -10,13 +10,14 @@ import { topReasons } from '../../engine/scoring';
 import { Empty, GoalTag, Notice, TierChip, minutesOf, toast, useNow } from '../components/common';
 import { Timeline, TimelineLegend } from '../components/Timeline';
 import { Icon } from '../components/icons';
+import { NextStep, PauseForm } from '../components/ResumeNote';
 import { useUI } from '../App';
 
 export function PlanView({ initialDate }: { initialDate?: ISODate }) {
   const data = useApp();
   const [date, setDate] = useState(initialDate ?? todayISO());
   const d = useDerived(date);
-  const { openTask } = useUI();
+  const { openTask, go } = useUI();
   const [sel, setSel] = useState<string | undefined>();
   const now = useNow();
   const plan = d.plan;
@@ -58,6 +59,7 @@ export function PlanView({ initialDate }: { initialDate?: ISODate }) {
   };
 
   const isToday = date === todayISO();
+  const belowBar = plan?.unscheduled.filter((u) => u.belowBar) ?? [];
   const proposed = plan?.blocks.filter((b) => b.type === 'task' && b.status === 'proposed').length ?? 0;
 
   return (
@@ -105,7 +107,7 @@ export function PlanView({ initialDate }: { initialDate?: ISODate }) {
 
           <aside className="side-sticky">
             <DayEvents date={date} />
-            {selected ? <BlockPanel block={selected} date={date} onClose={() => setSel(undefined)} openTask={openTask} /> : (
+            {selected ? <BlockPanel key={selected.id} block={selected} date={date} onClose={() => setSel(undefined)} openTask={openTask} /> : (
               <div className="panel small muted">Select a block to accept, swap, remove or log it.</div>
             )}
 
@@ -124,7 +126,14 @@ export function PlanView({ initialDate }: { initialDate?: ISODate }) {
               <div className="panel-head"><h3>Didn’t make today’s plan</h3><span className="xs muted">{plan.unscheduled.length}</span></div>
               {plan.unscheduled.length === 0 ? <p className="small muted">Every eligible task fit.</p> : (
                 <div className="list">
-                  {plan.unscheduled.slice(0, 10).map((u) => {
+                  {belowBar.length > 0 && (
+                    <div className="item clickable" onClick={() => go('triage')}>
+                      <Icon.funnel />
+                      <div className="grow"><div className="item-title small">{belowBar.length} below your leverage bar</div><div className="xs muted">Left out on purpose. Drop, snooze or keep them in Triage.</div></div>
+                      <Icon.arrow />
+                    </div>
+                  )}
+                  {plan.unscheduled.filter((u) => !u.belowBar).slice(0, 10).map((u) => {
                     const t = d.tasksById.get(u.taskId);
                     if (!t) return null;
                     return (
@@ -179,6 +188,26 @@ function BlockPanel({ block: b, date, onClose, openTask }: { block: Block; date:
   const goal = data.goals.find((g) => g.id === b.goalIds[0]);
   const r = b.taskId ? d.rankedById.get(b.taskId) : undefined;
   const cls = b.taskId ? d.classes.get(b.taskId) : undefined;
+  const task = b.taskId ? d.tasksById.get(b.taskId) : undefined;
+  const { go } = useUI();
+  const [pausing, setPausing] = useState(false);
+
+  if (b.type === 'shutdown')
+    return (
+      <section className="panel stack tight">
+        <div className="row between nowrap">
+          <span className="eyebrow">{b.status === 'done' ? 'Done' : 'End of workday'}</span>
+          <button className="iconbtn" onClick={onClose} aria-label="Close"><Icon.x /></button>
+        </div>
+        <h3>{b.title}</h3>
+        <span className="mono small">{fmtTime(b.start)}–{fmtTime(b.end)} · {fmtDuration(b.end - b.start)}</span>
+        <p className="small">Write down what you learned, give every unfinished task a next step and a day, then plan tomorrow. In one study, 15 minutes of end-of-day reflection lifted performance by about 23%, and giving open tasks a concrete plan stops them nagging at you overnight.</p>
+        <div className="row">
+          <button className="btn sm primary" onClick={() => go('review')}><Icon.review />Start shutdown review</button>
+        </div>
+        <p className="xs faint">Drag it to move it. Set its default time in Routine.</p>
+      </section>
+    );
 
   return (
     <section className="panel stack tight">
@@ -196,6 +225,7 @@ function BlockPanel({ block: b, date, onClose, openTask }: { block: Block; date:
           {cls && <div className="row"><TierChip tier={cls.tier} /><span className="xs muted">{TIER_INFO[cls.tier].advice}</span></div>}
           {r && <p className="small">{topReasons(r.result).map((f) => f.note).join('; ') || 'Best available use of this slot'}.</p>}
           {b.note && <p className="xs muted">{b.note}</p>}
+          <NextStep task={task} />
           <div className="row">
             {b.status === 'proposed' && <button className="btn sm primary" onClick={() => acceptBlock(date, b.id)}><Icon.check />Accept</button>}
             {b.locked && b.status !== 'done' && <button className="btn sm" onClick={() => unlockBlock(date, b.id)}>Unlock</button>}
@@ -204,8 +234,10 @@ function BlockPanel({ block: b, date, onClose, openTask }: { block: Block; date:
           </div>
           <div className="row">
             {b.status !== 'done' && <button className="btn sm" onClick={() => { completeTask(b.taskId!, date, b.end - b.start); toast('Logged as done'); }}>Mark done ({fmtDuration(b.end - b.start)})</button>}
+            {b.status !== 'done' && !pausing && <button className="btn sm" onClick={() => setPausing(true)} title="Leave a note on where you stopped"><Icon.pause />Stopped partway</button>}
             <button className="btn sm ghost" onClick={() => openTask(b.taskId!)}>Open task</button>
           </div>
+          {pausing && task && <PauseForm task={task} date={date} minutes={b.end - b.start} onDone={() => setPausing(false)} />}
         </>
       )}
       {b.type === 'commitment' && (

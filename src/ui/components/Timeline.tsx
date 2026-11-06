@@ -46,7 +46,7 @@ export function Timeline({ blocks, settings, goals, tiers, editable, selectedId,
     if (pa.start < pb.end && pb.start < pa.end) overlapping.add(a.id);
   }
 
-  const draggable = (b: Block) => editable && (b.type === 'task' || (b.type === 'commitment' && !b.fixed)) && b.status !== 'done';
+  const draggable = (b: Block) => editable && (b.type === 'task' || b.type === 'shutdown' || (b.type === 'commitment' && !b.fixed)) && b.status !== 'done';
 
   const down = (e: RPE, b: Block, mode: Drag['mode']) => {
     if (!draggable(b)) {
@@ -119,7 +119,7 @@ export function Timeline({ blocks, settings, goals, tiers, editable, selectedId,
             b.type,
             b.type === 'commitment' ? (b.fixed ? 'fixed' : 'flexible') : '',
             b.essential && b.type === 'commitment' ? 'essential' : '',
-            b.type === 'task' ? b.status : '',
+            b.type === 'task' || b.type === 'shutdown' ? b.status : '',
             tier === 'protect' ? 'protect' : '',
             selectedId === b.id ? 'selected' : '',
             drag?.id === b.id ? 'dragging' : '',
@@ -127,7 +127,7 @@ export function Timeline({ blocks, settings, goals, tiers, editable, selectedId,
           ].join(' ');
           if (b.type === 'buffer')
             return h >= 12 ? <div key={b.id} className={cls} style={{ top: y(p.start), height: h }} aria-hidden="true" /> : null;
-          const interactive = b.type === 'task' || b.type === 'commitment';
+          const interactive = b.type === 'task' || b.type === 'commitment' || b.type === 'shutdown';
           return (
             <div
               key={b.id}
@@ -153,7 +153,7 @@ export function Timeline({ blocks, settings, goals, tiers, editable, selectedId,
                   {h >= 58 && b.note && <span className="bm">{b.note}</span>}
                 </>
               )}
-              {b.type === 'task' && (
+              {(b.type === 'task' || b.type === 'shutdown') && (
                 <span className="icons">
                   {b.status === 'done' ? <Icon.check /> : b.locked ? <Icon.lock /> : null}
                 </span>
@@ -193,6 +193,7 @@ export function TimelineLegend() {
       <span><i style={{ background: 'var(--fixed-soft)', borderLeft: '3px solid var(--fixed)' }} />Fixed commitment</span>
       <span><i style={{ border: '1px dashed var(--fixed)' }} />Movable routine</span>
       <span><i style={{ border: '1px dotted var(--accent)' }} />Break</span>
+      <span><i style={{ background: 'var(--accent-soft)', borderLeft: '3px solid var(--ok)' }} />Shutdown</span>
       <span><i style={{ background: 'repeating-linear-gradient(135deg, transparent 0 3px, var(--accent-soft) 3px 4px)' }} />Focus window</span>
     </div>
   );

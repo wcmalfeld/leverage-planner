@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import type { Energy, Recurrence, Task, TaskStatus, Tier } from '../../domain/types';
-import { DAY_NAMES, fmtDuration, todayISO } from '../../domain/time';
+import { DAY_NAMES, fmtDateShort, fmtDuration, todayISO } from '../../domain/time';
 import { useApp } from '../../store/store';
 import { useRanking } from '../../store/derived';
 import { clarifyTask, completeTask, deleteTask, reopenTask, updateTask } from '../../store/actions';
 import { TIER_INFO } from '../../engine/classify';
 import { ConfirmButton, Drawer, Field, GoalTag, RatingInput, Seg, TierChip, toast } from './common';
 import { ScoreExplain } from './ScoreExplain';
+import { ResumeNote } from './ResumeNote';
+import { aiReady, useAISettings } from '../../ai/settings';
 
 const STATUSES: TaskStatus[] = ['inbox', 'ready', 'scheduled', 'in_progress', 'completed', 'deferred'];
 const STATUS_LABEL: Record<TaskStatus, string> = { inbox: 'Inbox', ready: 'Ready', scheduled: 'Scheduled', in_progress: 'In progress', completed: 'Completed', deferred: 'Deferred' };
@@ -18,6 +20,8 @@ export function TaskDrawer({ taskId, onClose }: { taskId: string; onClose: () =>
   const task = data.tasks.find((t) => t.id === taskId);
   const [clarify, setClarify] = useState({ title: '', expectedResult: '', durationMin: '' });
   const [done, setDone] = useState({ minutes: '', outcome: '' });
+  const ai = useAISettings();
+  const [suggesting, setSuggesting] = useState(false);
   if (!task) return null;
   const set = (patch: Partial<Task>) => updateTask(task.id, patch);
   const ranked = rankedById.get(task.id);
@@ -44,6 +48,26 @@ export function TaskDrawer({ taskId, onClose }: { taskId: string; onClose: () =>
           {cls.busywork && <p className="small" style={{ color: 'var(--crit)' }}>Looks productive, weak goal link: {cls.busyworkReason}.</p>}
           <ScoreExplain result={ranked.result} />
         </div>
+      )}
+
+      {task.status !== 'completed' && (task.resumeNote || task.plannedFor || task.snoozedUntil || task.keepBelowBar) && (
+        <section className="panel stack tight">
+          {task.resumeNote && (
+            <>
+              <ResumeNote task={task} />
+              <div><button className="btn sm ghost" onClick={() => set({ resumeNote: undefined })}>Clear note</button></div>
+            </>
+          )}
+          {task.plannedFor && task.plannedFor >= today && (
+            <div className="row between small"><span>Committed to <strong>{fmtDateShort(task.plannedFor)}</strong></span><button className="btn sm ghost" onClick={() => set({ plannedFor: undefined })}>Clear</button></div>
+          )}
+          {task.snoozedUntil && task.snoozedUntil > today && (
+            <div className="row between small"><span>Snoozed until <strong>{fmtDateShort(task.snoozedUntil)}</strong></span><button className="btn sm ghost" onClick={() => set({ snoozedUntil: undefined })}>Unsnooze</button></div>
+          )}
+          {task.keepBelowBar && (
+            <div className="row between small"><span>Kept despite scoring below your leverage bar</span><button className="btn sm ghost" onClick={() => set({ keepBelowBar: undefined })}>Undo</button></div>
+          )}
+        </section>
       )}
 
       {vague && task.status !== 'completed' && (
@@ -81,6 +105,21 @@ export function TaskDrawer({ taskId, onClose }: { taskId: string; onClose: () =>
         </Field>
         <Field label="Expected result — what does done look like?">
           <input id="td-result" className="input" value={task.expectedResult ?? ''} onChange={(e) => set({ expectedResult: e.target.value || undefined })} />
+        </Field>
+        <Field label="First step" hint="The very first physical action, 2–5 minutes. Shown when its block starts, so starting takes no decision.">
+          <div className="row nowrap">
+            <input id="td-first" className="input grow" value={task.firstStep ?? ''} placeholder="e.g. Open last quarter’s deck and copy the revenue slide" onChange={(e) => set({ firstStep: e.target.value || undefined })} />
+            {aiReady(ai) && task.status !== 'completed' && (
+              <button type="button" className="btn sm" disabled={suggesting} onClick={async () => {
+                setSuggesting(true);
+                try {
+                  const { suggestFirstStep, describeError } = await import('../../ai/coach');
+                  try { set({ firstStep: await suggestFirstStep(ai.apiKey, data, today, task.id) }); }
+                  catch (e) { toast(describeError(e)); }
+                } finally { setSuggesting(false); }
+              }}>{suggesting ? 'Thinking…' : 'Suggest'}</button>
+            )}
+          </div>
         </Field>
         <div className="fields">
           <Field label="Duration (min)">

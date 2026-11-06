@@ -6,6 +6,7 @@ import { DAY_NAMES, addDays, dayOfWeek, fmtDuration, fmtTime, fromHHMM, toHHMM, 
 import { computeAvailability } from '../../engine/availability';
 import { ConfirmButton, Field, toast } from '../components/common';
 import { Icon } from '../components/icons';
+import { canNotify } from '../components/Nudges';
 
 const KINDS: CommitmentKind[] = ['work', 'meal', 'exercise', 'routine', 'appointment', 'travel', 'social', 'rest'];
 
@@ -62,6 +63,31 @@ export function RoutineView() {
             <Field label="Daily focused-work cap" hint="Beyond this, rest wins"><NumIn id="s-cap" v={s.maxWorkMin} on={(v) => set({ maxWorkMin: Math.max(30, v) })} max={960} /></Field>
             <Field label="Default task length"><NumIn id="s-def" v={s.defaultDurationMin} on={(v) => set({ defaultDurationMin: Math.max(5, v) })} /></Field>
             <Field label="Home location name"><input id="s-home" className="input" value={s.homeLocation} onChange={(e) => set({ homeLocation: e.target.value })} /></Field>
+            <Field label="Leverage bar" hint="Tasks scoring below this are left out (0 = off). Triage shows them."><NumIn id="s-bar" v={s.leverageBar} on={(v) => set({ leverageBar: v })} max={100} /></Field>
+          </div>
+          <h3>End-of-day shutdown</h3>
+          <p className="small muted">A short block to review the day, leave next steps on unfinished work and plan tomorrow. If something else is at that time, it moves to the next free slot.</p>
+          <div className="fields">
+            <Field label="Schedule it">
+              <select id="s-sd-on" className="input" value={s.shutdown.enabled ? 'on' : 'off'} onChange={(e) => set({ shutdown: { ...s.shutdown, enabled: e.target.value === 'on' } })}>
+                <option value="on">Every day</option>
+                <option value="off">Off</option>
+              </select>
+            </Field>
+            <Field label="At"><input id="s-sd-at" type="time" className="input" value={toHHMM(s.shutdown.at)} onChange={(e) => e.target.value && set({ shutdown: { ...s.shutdown, at: fromHHMM(e.target.value) } })} /></Field>
+            <Field label="Minutes"><NumIn id="s-sd-min" v={s.shutdown.durationMin} on={(v) => set({ shutdown: { ...s.shutdown, durationMin: Math.max(5, v) } })} max={60} /></Field>
+          </div>
+          <h3>Start nudges</h3>
+          <p className="small muted">When a block starts, the app shows what it is and its first step (or where you left off). With notifications allowed, you also get one when this tab is in the background.</p>
+          <div className="fields">
+            <Field label="Nudge me">
+              <select id="s-nudge-on" className="input" value={s.nudges.enabled ? 'on' : 'off'} onChange={(e) => set({ nudges: { ...s.nudges, enabled: e.target.value === 'on' } })}>
+                <option value="on">When a block starts</option>
+                <option value="off">Off</option>
+              </select>
+            </Field>
+            <Field label="Minutes early"><NumIn id="s-nudge-lead" v={s.nudges.leadMin} on={(v) => set({ nudges: { ...s.nudges, leadMin: v } })} max={30} /></Field>
+            <Field label="Desktop notifications"><NotifyPermission /></Field>
           </div>
         </section>
 
@@ -122,6 +148,14 @@ export function RoutineView() {
       {editing && <CommitmentEditor value={editing} onClose={() => setEditing(null)} />}
     </>
   );
+}
+
+function NotifyPermission() {
+  const [perm, setPerm] = useState(canNotify() ? Notification.permission : 'unsupported');
+  if (perm === 'granted') return <span className="small">Allowed</span>;
+  if (perm === 'denied') return <span className="small muted">Blocked. Allow them in your browser’s site settings.</span>;
+  if (perm === 'unsupported') return <span className="small muted">Not supported in this browser</span>;
+  return <button className="btn sm" onClick={() => Notification.requestPermission().then(setPerm)}>Allow</button>;
 }
 
 function NumIn({ id, v, on, max = 600 }: { id: string; v: number; on: (n: number) => void; max?: number }) {

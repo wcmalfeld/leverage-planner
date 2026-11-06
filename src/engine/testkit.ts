@@ -54,6 +54,9 @@ export function settings(p: Partial<Settings> = {}): Settings {
     maxWorkMin: 720,
     defaultDurationMin: 30,
     homeLocation: 'home',
+    leverageBar: 0,
+    shutdown: { enabled: false, at: H(17, 30), durationMin: 15 },
+    nudges: { enabled: false, leadMin: 1 },
     weights: { ...DEFAULT_WEIGHTS },
     ...p,
   };
