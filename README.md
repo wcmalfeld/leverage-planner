@@ -2,6 +2,10 @@
 
 A local-first personal strategy engine. It ranks what you could do by leverage against your own goals, fits the best of it into your real day (sleep, meals, training and people protected), compares that plan with what you'd otherwise do, and learns from daily and weekly reviews.
 
+**Live demo:** https://wcmalfeld.github.io/leverage-planner/ (choose "Load example" to explore with sample data)
+
+![Leverage Planner's Today view: a start nudge with the block's first step, the current task, and the three highest-leverage actions for the day](docs/screenshot.png)
+
 ## Run it
 
 ```bash
