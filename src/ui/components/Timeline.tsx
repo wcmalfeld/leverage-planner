@@ -29,7 +29,8 @@ interface Drag {
 }
 
 export function Timeline({ blocks, settings, goals, tiers, editable, selectedId, onSelect, onTimeChange, nowMin, pxPerMin = 1.05, showFocus = true, label }: Props) {
-  const startMin = Math.floor(settings.wake / 60) * 60;
+  // Stretch to fit anything outside your waking hours, e.g. breakfast before your set wake time.
+  const startMin = Math.max(0, Math.floor(Math.min(settings.wake, ...blocks.map((b) => b.start)) / 60) * 60);
   const endMin = Math.ceil(Math.max(settings.sleep, ...blocks.map((b) => b.end)) / 60) * 60;
   const height = (endMin - startMin) * pxPerMin;
   const y = (m: number) => (m - startMin) * pxPerMin;
@@ -107,7 +108,7 @@ export function Timeline({ blocks, settings, goals, tiers, editable, selectedId,
           <div key={i} className={`tl-energy ${p.level}`} style={{ top: y(Math.max(p.start, startMin)), height: Math.max(0, (Math.min(p.end, endMin) - Math.max(p.start, startMin)) * pxPerMin) }} title={`${p.level} energy`} />
         ))}
         {showFocus && settings.focusWindows.map((f, i) => (
-          <div key={i} className="tl-focus" style={{ top: y(f.start), height: (f.end - f.start) * pxPerMin }} />
+          <div key={i} className="tl-focus" style={{ top: y(Math.max(f.start, startMin)), height: Math.max(0, (Math.min(f.end, endMin) - Math.max(f.start, startMin)) * pxPerMin) }} />
         ))}
         {blocks.map((b) => {
           const p = pos(b);
