@@ -15,7 +15,7 @@ export function TodayView() {
   const data = useApp();
   const today = todayISO();
   const d = useDerived(today);
-  const { go, openTask } = useUI();
+  const { go, openTask, freshStart } = useUI();
   const now = useNow();
   const nowMin = minutesOf(now);
 
@@ -62,6 +62,7 @@ export function TodayView() {
             <button className="btn primary" onClick={() => go('plan')}><Icon.plan />Adjust today’s plan</button>
             <button className="btn" onClick={() => go('compare')}><Icon.compare />Compare with my current plan</button>
             <button className="btn ghost" onClick={() => go('review')}>End-of-day review</button>
+            <button className="btn ghost" onClick={() => freshStart()}><Icon.refresh />Fresh start</button>
           </div>
         </div>
         <div className="stack">

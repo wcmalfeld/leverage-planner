@@ -18,6 +18,7 @@ export function GoalsView() {
   const goals = [...data.goals].sort((a, b) => a.order - b.order);
   const [openId, setOpenId] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
+  const { freshStart } = useUI();
   const stalls = new Map(stalledGoals(data, todayISO()).map((s) => [s.goal.id, s]));
 
   return (
@@ -28,6 +29,7 @@ export function GoalsView() {
           <h1>The life you’re building</h1>
           <p>Order and importance drive alignment scores. Health and relationships can be marked as <em>sustaining</em>: protected and scheduled consistently rather than maximised.</p>
         </div>
+        <button className="btn" onClick={() => freshStart('goals')}><Icon.refresh />New goals, clean slate</button>
       </header>
 
       <BottleneckCard />

@@ -4,6 +4,7 @@ import { BrandMark, Icon } from './components/icons';
 import { Notice, ToastHost } from './components/common';
 import { TaskDrawer } from './components/TaskDrawer';
 import { NudgeBanner } from './components/Nudges';
+import { FreshStart, type FreshMode } from './components/FreshStart';
 import { TodayView } from './views/Today';
 import { PlanView } from './views/Plan';
 import { CompareView } from './views/Compare';
@@ -43,8 +44,10 @@ interface UI {
   go: (v: View) => void;
   openTask: (id: string) => void;
   openPlan: (date: ISODate) => void;
+  /** Open the fresh-start flow: pick a path, or go straight to new tasks or new goals. */
+  freshStart: (mode?: FreshMode) => void;
 }
-const UICtx = createContext<UI>({ go: () => {}, openTask: () => {}, openPlan: () => {} });
+const UICtx = createContext<UI>({ go: () => {}, openTask: () => {}, openPlan: () => {}, freshStart: () => {} });
 export const useUI = () => useContext(UICtx);
 
 const readHash = (): View => {
@@ -58,6 +61,7 @@ export function App() {
   const [taskId, setTaskId] = useState<string | null>(null);
   const [planDate, setPlanDate] = useState<ISODate>(todayISO);
   const [onboarding, setOnboarding] = useState(!data.onboarded);
+  const [fresh, setFresh] = useState<FreshMode | null>(null);
 
   useEffect(() => {
     const f = () => setView(readHash());
@@ -91,7 +95,7 @@ export function App() {
   }[view];
 
   return (
-    <UICtx.Provider value={{ go, openTask: setTaskId, openPlan: (date) => go('plan', date) }}>
+    <UICtx.Provider value={{ go, openTask: setTaskId, openPlan: (date) => go('plan', date), freshStart: (m = 'choose') => setFresh(m) }}>
       <div className="shell">
         <nav className="rail" aria-label="Main">
           <div className="brand">
@@ -127,6 +131,7 @@ export function App() {
         </main>
       </div>
       {taskId && <TaskDrawer taskId={taskId} onClose={() => setTaskId(null)} />}
+      {fresh && <FreshStart initial={fresh} onClose={() => setFresh(null)} />}
       {onboarding && <Onboarding onDone={() => { setOnboarding(false); go('today'); }} />}
       <ToastHost />
     </UICtx.Provider>

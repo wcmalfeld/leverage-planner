@@ -4,6 +4,7 @@
  */
 import type {
   ActualEntry,
+  AppData,
   Block,
   Commitment,
   CurrentBlock,
@@ -11,6 +12,7 @@ import type {
   Goal,
   ISODate,
   Milestone,
+  Rating,
   Task,
   WeeklyReview,
 } from '../domain/types';
@@ -345,6 +347,97 @@ export function deleteCurrent(id: string) {
   update((d) => {
     d.currentPlan = d.currentPlan.filter((c) => c.id !== id);
   });
+}
+
+// ───────── Fresh start ─────────
+
+export interface FreshStartPlan {
+  date: ISODate;
+  /** What happens to open, one-off tasks. Recurring tasks are routines and always stay. */
+  oldTasks: 'park' | 'delete' | 'keep';
+  /** Only for a goals clean slate. */
+  goals?: {
+    keep: string[];
+    /** Goals not kept: archived (status "dropped", history intact) or deleted. */
+    others: 'archive' | 'delete';
+    added: { key: string; name: string; importance: Rating }[];
+    bottleneck?: { statement: string; goalKeys: string[] };
+  };
+  /** New tasks; goalKey is an existing goal id or the key of an added goal. */
+  tasks: { title: string; goalKey: string; durationMin?: number; expectedResult?: string; firstStep?: string }[];
+}
+
+/**
+ * Clear the slate and start the day from your goals. Pure over the draft so it can be
+ * tested; routines, settings, completed work and logged time are never touched.
+ * New tasks are committed to the day, so they're scheduled ahead of everything else.
+ */
+export function applyFreshStart(d: AppData, p: FreshStartPlan, makeId: (prefix: string) => string = uid): Record<string, string> {
+  const oneOffOpen = (t: Task) => t.recurrence === 'none' && t.status !== 'completed' && t.status !== 'deferred';
+  if (p.oldTasks === 'park') {
+    for (const t of d.tasks.filter(oneOffOpen)) {
+      t.status = 'deferred';
+      t.plannedFor = undefined;
+      t.snoozedUntil = undefined;
+      t.keepBelowBar = undefined;
+    }
+  } else if (p.oldTasks === 'delete') {
+    const gone = new Set(d.tasks.filter(oneOffOpen).map((t) => t.id));
+    d.tasks = d.tasks.filter((t) => !gone.has(t.id));
+    for (const t of d.tasks) t.dependsOn = t.dependsOn.filter((x) => !gone.has(x));
+    for (const plan of Object.values(d.plans)) plan.blocks = plan.blocks.filter((b) => !b.taskId || !gone.has(b.taskId) || b.status === 'done');
+  }
+
+  const ids: Record<string, string> = Object.fromEntries(d.goals.map((g) => [g.id, g.id]));
+  if (p.goals) {
+    const g = p.goals;
+    const leaving = new Set(d.goals.filter((x) => !g.keep.includes(x.id) && (x.status === 'active' || x.status === 'paused')).map((x) => x.id));
+    if (g.others === 'archive') {
+      for (const x of d.goals) if (leaving.has(x.id)) x.status = 'dropped';
+    } else {
+      d.goals = d.goals.filter((x) => !leaving.has(x.id));
+      for (const t of d.tasks) t.goalIds = t.goalIds.filter((x) => !leaving.has(x));
+      for (const c of d.commitments) if (c.goalId && leaving.has(c.goalId)) c.goalId = undefined;
+      for (const c of d.currentPlan) if (c.goalId && leaving.has(c.goalId)) c.goalId = undefined;
+      for (const k of [...leaving]) delete ids[k];
+    }
+    let order = Math.max(-1, ...d.goals.map((x) => x.order)) + 1;
+    for (const a of g.added.filter((a) => a.name.trim())) {
+      const id = makeId('g');
+      ids[a.key] = id;
+      d.goals.push({ id, name: a.name.trim(), outcome: '', why: '', horizon: 'annual', importance: a.importance, status: 'active', order, color: GOAL_COLORS[order % GOAL_COLORS.length], milestones: [] });
+      order++;
+    }
+    // The old bottleneck described the old goals; replace it, or clear it.
+    const statement = g.bottleneck?.statement.trim() ?? '';
+    if (statement && statement !== d.bottleneck.statement) d.bottleneck.history = [...d.bottleneck.history, { date: p.date, statement }].slice(-20);
+    d.bottleneck.statement = statement;
+    d.bottleneck.goalIds = statement ? (g.bottleneck?.goalKeys ?? []).map((k) => ids[k]).filter(Boolean) : [];
+    d.bottleneck.updatedAt = p.date;
+  }
+
+  for (const t of p.tasks.filter((t) => t.title.trim() && ids[t.goalKey]).reverse())
+    d.tasks.unshift({
+      id: makeId('t'),
+      title: t.title.trim(),
+      goalIds: [ids[t.goalKey]],
+      expectedResult: t.expectedResult?.trim() || undefined,
+      firstStep: t.firstStep?.trim() || undefined,
+      durationMin: t.durationMin,
+      dependsOn: [],
+      recurrence: 'none',
+      status: 'ready',
+      createdAt: p.date,
+      postponeCount: 0,
+      plannedFor: p.date,
+    });
+  return ids;
+}
+
+/** Apply a fresh start, then rebuild that day's plan from scratch (finished blocks stay). */
+export function freshStart(p: FreshStartPlan) {
+  update((d) => { applyFreshStart(d, p); });
+  generateFor(p.date, false);
 }
 
 // ───────── Reviews ─────────

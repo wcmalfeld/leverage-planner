@@ -111,6 +111,11 @@ const TEMPLATES: { match: RegExp; tasks: Partial<Task>[] }[] = [
   },
 ];
 
+/** Starter task ideas for a goal, matched on its name and outcome. */
+export function templateDrafts(goalText: string): Partial<Task>[] {
+  return TEMPLATES.find((t) => t.match.test(goalText))?.tasks ?? [];
+}
+
 export class RuleBasedAdvisor implements StrategyAdvisor {
   readonly name = 'Built-in rules (offline)';
 

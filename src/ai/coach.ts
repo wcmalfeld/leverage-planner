@@ -134,6 +134,40 @@ export async function suggestFirstStep(apiKey: string, data: AppData, today: ISO
   return step;
 }
 
+const DayTasksSchema = z.object({
+  tasks: z.array(z.object({ goal: z.string(), title: z.string(), expectedResult: z.string(), durationMin: z.number().int(), firstStep: z.string() })),
+});
+
+export interface DayTaskDraft {
+  goalKey: string;
+  title: string;
+  expectedResult: string;
+  durationMin: number;
+  firstStep: string;
+}
+
+/** A fresh day's worth of tasks for the given goals (which may not exist in the planner yet). */
+export async function suggestDayTasks(apiKey: string, data: AppData, today: ISODate, goals: { key: string; name: string }[]): Promise<DayTaskDraft[]> {
+  const list = goals.map((g, i) => `${i + 1}. [${g.key}] ${g.name}`).join('\n');
+  const res = await client(apiKey).beta.messages.parse({
+    model: MODEL,
+    max_tokens: 16000,
+    ...FALLBACK,
+    output_config: { effort: 'medium', format: betaZodOutputFormat(DayTasksSchema) },
+    system: COACH_SYSTEM,
+    messages: [{
+      role: 'user',
+      content: `${snapshot(data, today)}\n\nI'm starting today with a clean slate. My goals for it, highest priority first:\n${list}\n\nSuggest the tasks for today: one or two per goal, more for the top goals, about 4–6 hours of focused work in total. Each must be a concrete next action of 15–90 minutes that moves its goal forward, with what done looks like and the very first physical action (2–5 minutes). Use the snapshot for context but don't repeat tasks I've already completed. Set "goal" to the key in square brackets.`,
+    }],
+  });
+  if (res.stop_reason === 'refusal') throw new Error('Claude declined to answer this one.');
+  if (!res.parsed_output) throw new Error('Claude’s answer was cut off or unreadable. Try again.');
+  const keys = new Set(goals.map((g) => g.key));
+  return res.parsed_output.tasks
+    .filter((t) => keys.has(t.goal) && t.title.trim())
+    .map((t) => ({ goalKey: t.goal, title: t.title, expectedResult: t.expectedResult, durationMin: Math.min(240, Math.max(10, Math.round(t.durationMin))), firstStep: t.firstStep }));
+}
+
 // ─────────────────────────────── Chat ───────────────────────────────
 
 export type ChatMessage = Anthropic.Beta.BetaMessageParam;

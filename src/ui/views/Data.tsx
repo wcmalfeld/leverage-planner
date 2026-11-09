@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { store, useApp } from '../../store/store';
 import { ConfirmButton, Notice, toast } from '../components/common';
 import { Icon } from '../components/icons';
+import { useUI } from '../App';
 
 export function DataView({ onRestartOnboarding }: { onRestartOnboarding: () => void }) {
   const data = useApp();
+  const { freshStart } = useUI();
   const [json, setJson] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const size = new Blob([JSON.stringify(data)]).size;
@@ -79,7 +81,9 @@ export function DataView({ onRestartOnboarding }: { onRestartOnboarding: () => v
 
       <section className="panel stack">
         <h2>Start over</h2>
+        <p className="small muted"><strong>Fresh start</strong> clears your task list or goals but keeps your routine, settings and history. <strong>Reset everything</strong> erases all of it.</p>
         <div className="row">
+          <button className="btn primary" onClick={() => freshStart()}><Icon.refresh />Fresh start…</button>
           <ConfirmButton className="btn" label="Load demo data" confirm="Replace my data with the demo" onConfirm={() => { store.loadDemo(); toast('Demo loaded'); }} />
           <ConfirmButton className="btn" label="Reset everything" confirm="Erase all data" onConfirm={() => { store.reset(); onRestartOnboarding(); }} />
           <button className="btn ghost" onClick={onRestartOnboarding}>Run setup again</button>
